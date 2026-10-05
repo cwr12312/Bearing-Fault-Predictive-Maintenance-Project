@@ -358,58 +358,78 @@ def answer_dashboard_query(question: str, session_history: list[dict] | None = N
 # C. ROOT CAUSE REASONING (decision support, not a diagnosis)
 # ==========================================================================
 
+_ROOT_CAUSES = {
+    "Ball Fault": [
+        ("Rolling-element (ball) surface damage or spalling",
+         "Ball defects produce impacts at the ball-spin frequency that show up as raised kurtosis and crest factor."),
+        ("Lubricant contamination or degradation",
+         "Particles or broken-down grease accelerate wear on the balls and raceways."),
+        ("Improper installation or excessive preload",
+         "Mounting damage or over-tightening can introduce early rolling-element damage."),
+    ],
+    "Inner Race Fault": [
+        ("Inner-race pitting / spalling from fatigue",
+         "Inner-race defects rotate with the shaft, producing periodic impacts and amplitude-modulated vibration."),
+        ("Shaft misalignment or unbalance",
+         "Added cyclic loading on the inner race shortens fatigue life."),
+        ("Loose or tight shaft fit (fretting / creep)",
+         "Incorrect fit between shaft and inner ring can cause fretting and early surface damage."),
+    ],
+    "Outer Race Fault": [
+        ("Outer-race wear / pitting",
+         "A localized outer-race defect produces repeated impacts each time a rolling element passes over it."),
+        ("Contamination / foreign-body damage",
+         "Debris trapped in the load zone creates impact events and indentation on the raceway."),
+        ("Lubrication deficiency or wrong grease",
+         "Insufficient film thickness lets metal-to-metal contact occur, accelerating race damage."),
+        ("Housing misalignment or loose housing fit",
+         "Uneven load distribution concentrates stress on the outer race."),
+    ],
+}
+
+
 def root_cause_reasoning(predicted_display: str, confidence: float, features: dict,
                           technician_notes: str = "") -> tuple[str, str]:
     """
-    Suggests 2-4 plausible root causes for the predicted fault by combining
-    the real vibration-derived features (rms/kurtosis/crest) passed in from
-    the Live Prediction page with an optional free-text technician note.
-    Explicitly framed as decision support for a human to verify, never a
-    guaranteed diagnosis — both the live-LLM prompt and the template
-    fallback below end with that same disclaimer.
+    Suggests plausible root causes for the predicted fault using the real
+    vibration-derived features (rms/kurtosis/crest) passed in from the Live
+    Prediction page. Fully deterministic (no LLM call, no randomness): the
+    same prediction and features always produce exactly the same output.
+    Framed as decision support for a human to verify, never a diagnosis.
     """
-    system = (
-        "You are a decision-support assistant for industrial vibration analysis. You "
-        "combine structured sensor features (FFT/RMS/kurtosis-derived) with technician "
-        "notes to suggest POSSIBLE root causes — you never state a guaranteed diagnosis, "
-        "and you always recommend manual verification."
-    )
-    user = (
-        f"Predicted condition: {predicted_display} (confidence {confidence*100:.1f}%).\n"
-        f"Vibration-derived features: {json.dumps(features, default=str)}\n"
-        f"Technician notes / maintenance log: {technician_notes or 'None provided'}\n\n"
-        "List 2-4 plausible root causes as decision support, referencing specific feature "
-        "values where relevant, and end with a reminder that this is not a guaranteed diagnosis."
-    )
-    text, mode = call_llm(system, user)
-    if text:
-        return text, mode
+    family = family_for_display(predicted_display)
+    causes = _ROOT_CAUSES.get(family)
+    if not causes:
+        return ("No fault is predicted, so there are no root causes to analyse. "
+                "Continue routine monitoring."), "template"
 
-    # ---- Rule-based fallback: turn each individual feature reading into a
-    # plain-English possible cause only when it crosses a meaningful
-    # threshold, rather than always listing all three regardless of value. ----
-    bullets = []
-    kurt = features.get("kurtosis")
+    def _fmt(v):
+        return f"{v:.3f}" if isinstance(v, (int, float)) else "n/a"
+
     rms = features.get("rms")
+    kurt = features.get("kurtosis")
     crest = features.get("crest")
+
+    lines = [f"**Predicted condition:** {predicted_display} (confidence {confidence*100:.1f}%)", ""]
+    lines.append(f"**Feature evidence:** RMS = {_fmt(rms)}, Kurtosis = {_fmt(kurt)}, "
+                 f"Crest factor = {_fmt(crest)}")
+    notes = []
     if isinstance(kurt, (int, float)) and kurt > 6:
-        bullets.append(f"Elevated kurtosis ({kurt:.2f}) suggests impulsive, impact-like "
-                        f"vibration consistent with localized pitting or spalling.")
+        notes.append("kurtosis is elevated, indicating impulsive, impact-like vibration")
     if isinstance(rms, (int, float)) and rms > 0.5:
-        bullets.append(f"High RMS energy ({rms:.3f}) indicates increased overall vibration "
-                        f"amplitude, consistent with defect growth or mechanical looseness.")
+        notes.append("RMS is high, indicating increased overall vibration energy")
     if isinstance(crest, (int, float)) and crest > 4:
-        bullets.append(f"High crest factor ({crest:.2f}) points to sharp, short-duration "
-                        f"impacts relative to overall signal energy — typical of early-stage defects.")
-    if technician_notes.strip():
-        bullets.append("Technician notes are on file for this asset — consider whether this "
-                        "is a recurring/unresolved fault rather than a newly-developing one.")
-    if not bullets:
-        bullets.append("The feature pattern is broadly consistent with the predicted fault "
-                        "family; no single feature stands out as dominant.")
-    bullets.append("⚠ This is decision support only, not a diagnosis — confirm with manual "
-                    "vibration or thermal inspection before scheduling repairs.")
-    return "\n".join(f"- {b}" for b in bullets), mode
+        notes.append("crest factor is high, indicating sharp short-duration peaks")
+    if notes:
+        lines.append("Observations: " + "; ".join(notes) + ".")
+    lines += ["", "**Plausible root-cause candidates (decision support only):**", ""]
+    for i, (title, why) in enumerate(causes, 1):
+        lines.append(f"{i}. **{title}** — {why}")
+    lines += ["", "**Next steps:** visually inspect the bearing, verify lubricant type and fill level, "
+              "and re-check vibration while the machine is running.", "",
+              "⚠ This is decision support only, not a diagnosis — confirm with manual inspection "
+              "before scheduling repairs."]
+    return "\n".join(lines), "template"
 
 
 # ==========================================================================
@@ -474,6 +494,57 @@ def summarize_maintenance_notes(notes_text: str) -> tuple[str, str]:
     parts.append("\n_Candidate structure only — recommended for human review before use as "
                   "training labels._")
     return "\n".join(parts), mode
+
+
+_MAINT_HISTORY = {
+    "Ball Fault": {
+        "events": ["Early-stage rolling-element wear flagged during routine vibration round",
+                   "Lubricant condition check and re-greasing carried out",
+                   "Elevated temperature and noise monitored over following weeks"],
+        "recurring": ["vibration", "lubrication", "noise"],
+        "pattern": "Ball faults tend to progress gradually; repeat vibration alerts after re-greasing suggest the defect is still present.",
+    },
+    "Inner Race Fault": {
+        "events": ["Bearing replaced due to inner race pitting",
+                   "Unusual vibration noted during routine round",
+                   "Recurring high-frequency noise near drive-end bearing"],
+        "recurring": ["bearing", "vibration", "noise"],
+        "pattern": "Inner-race faults progress faster; recurrence after a replacement points to a root cause such as misalignment or shaft fit.",
+    },
+    "Outer Race Fault": {
+        "events": ["Outer race wear detected on drive-end bearing",
+                   "Lubrication and alignment inspection performed",
+                   "Maintenance supervisor notified; shutdown recommended"],
+        "recurring": ["bearing", "lubrication", "alignment"],
+        "pattern": "Outer-race faults are treated as the most urgent family; repeat events usually trace back to lubrication or housing alignment.",
+    },
+}
+
+
+def maintenance_history_for_fault(predicted_display: str) -> tuple[str, str]:
+    """
+    Deterministic maintenance-history profile for the predicted fault.
+    No LLM call and no randomness: the same predicted fault always returns
+    exactly the same text. This is a reference profile for the fault type,
+    NOT a record of real logged work orders.
+    """
+    family = family_for_display(predicted_display)
+    prof = _MAINT_HISTORY.get(family)
+    if not prof:
+        return ("No fault is predicted, so there is no fault-related maintenance history. "
+                "Continue routine monitoring."), "template"
+    rec = RECOMMENDATIONS.get(family, {})
+    parts = [f"**Maintenance History Profile — {predicted_display}**", "",
+             "**Typical events for this fault type:**"]
+    parts += [f"- {e}" for e in prof["events"]]
+    parts += ["", "**Recurring themes:** " + ", ".join(prof["recurring"]),
+              "", "**Pattern:** " + prof["pattern"]]
+    if rec:
+        parts += ["", f"**Risk level:** {rec['risk']}", "", "**Recommended maintenance actions:**"]
+        parts += [f"- {a}" for a in rec["actions"]]
+    parts += ["", "_Reference profile for this fault type, not a record of logged work orders — "
+              "subject to human review._"]
+    return "\n".join(parts), "template"
 
 
 # ==========================================================================
@@ -596,6 +667,96 @@ def generate_fault_scenario(class_display: str, family: str, risk: str) -> tuple
 # other LLM feature in this dashboard share this one provider-resolution
 # and template-fallback layer.
 
+# --------------------------------------------------------------------------
+# Basic-question template (answered locally, no API call)
+# --------------------------------------------------------------------------
+# Simple factual questions about model ranking are answered straight from
+# data/model_metrics.csv so they are instant and never use API quota. Anything
+# that is not clearly one of these basic questions returns None and is passed
+# to the API exactly as before.
+
+_BASIC_ADVANCED_HINTS = (
+    "why", "explain", "how does", "how do", "how can", "compare", "difference",
+    "versus", " vs ", "should", "recommend", "maintenance", "predict", "fault",
+    "bearing", "improve", "retrain", "shap", "confusion", "dataset", "cause",
+)
+
+_NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+
+
+def _basic_requested_count(q: str, total: int) -> int | None:
+    """Returns N for phrases like 'top 3' / 'top three', else None."""
+    import re
+    m = re.search(r"\b(?:top|best|first)\s+(\d+|two|three|four|five|six)\b", q)
+    if not m:
+        return None
+    tok = m.group(1)
+    n = int(tok) if tok.isdigit() else _NUMBER_WORDS.get(tok)
+    return max(1, min(n, total)) if n else None
+
+
+def answer_basic_dashboard_question(question: str) -> str | None:
+    """
+    Template answer for basic model-ranking questions (best model, top/best
+    ranked models, full ranking, worst model, fastest model, highest accuracy).
+    Uses only the real values in data/model_metrics.csv. Returns None when the
+    question is not a basic one, so the caller can hand it to the API.
+    """
+    q = " " + (question or "").lower().strip().rstrip("?!. ") + " "
+    if len(q.split()) > 14 or any(h in q for h in _BASIC_ADVANCED_HINTS):
+        return None
+
+    metrics = load_metrics()  # already sorted best -> worst by average_score
+    total = len(metrics)
+
+    def _line(r) -> str:
+        return (f"{int(r['computed_rank'])}. **{r['model_name']}** — "
+                f"accuracy {r['accuracy']*100:.2f}%, F1 {r['f1_score']*100:.2f}%, "
+                f"avg score {r['average_score']:.4f}")
+
+    mentions_model = "model" in q or "models" in q
+    n = _basic_requested_count(q, total)
+
+    # Worst / lowest ranked
+    if mentions_model and any(w in q for w in (" worst ", " lowest ", " weakest ", " least ", " bottom ")):
+        w = metrics.iloc[-1]
+        return (f"The lowest-ranked model is **{w['model_name']}** (rank {int(w['computed_rank'])}) with "
+                f"{w['accuracy']*100:.2f}% accuracy and an average score of {w['average_score']:.4f}.")
+
+    # Fastest inference
+    if any(w in q for w in (" fastest ", " quickest ", " lowest latency ", " fastest inference ")):
+        f = metrics.sort_values("inference_time_ms").iloc[0]
+        return (f"**{f['model_name']}** has the fastest estimated inference time at "
+                f"{f['inference_time_ms']:.1f} ms per sample.")
+
+    # Highest accuracy
+    if " highest accuracy " in q or " most accurate " in q or " best accuracy " in q:
+        a = metrics.sort_values("accuracy", ascending=False).iloc[0]
+        return (f"**{a['model_name']}** has the highest accuracy at {a['accuracy']*100:.2f}%.")
+
+    # Top N / best ranked models / full ranking / leaderboard
+    wants_list = (
+        n is not None
+        or any(w in q for w in (" ranking ", " rankings ", " ranked ", " leaderboard ", " rank of ", " order "))
+        or " best models " in q or " top models " in q or " all models " in q
+    )
+    if mentions_model and wants_list:
+        count = n if n is not None else total
+        rows = metrics.head(count)
+        title = (f"Top {count} model{'s' if count != 1 else ''} by average score:"
+                 if count < total else "Model ranking by average score (best to worst):")
+        return title + "\n\n" + "\n".join(_line(r) for _, r in rows.iterrows())
+
+    # Single best model
+    if mentions_model and any(w in q for w in (" best ", " top ", " number one ", " #1 ", " first ")):
+        b = best_model_row(metrics)
+        return (f"The best-performing model is **{b['model_name']}** (rank 1) with "
+                f"{b['accuracy']*100:.2f}% accuracy, {b['f1_score']*100:.2f}% F1 and an average "
+                f"score of {b['average_score']:.4f}.")
+
+    return None
+
+
 def chat_with_agent(history: list[dict]) -> tuple[str, str]:
     """
     Free-form conversational entry point for the floating "Manage Agent"
@@ -604,6 +765,13 @@ def chat_with_agent(history: list[dict]) -> tuple[str, str]:
     Uses Groq for live responses and preserves the existing
     template fallback if the API is unavailable.
     """
+    # Basic ranking questions are answered locally from the metrics table;
+    # everything else continues to the API below.
+    _last_q = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+    _basic = answer_basic_dashboard_question(_last_q)
+    if _basic:
+        return _basic, "template"
+
     system = (
         "You are the Manage Agent assistant embedded in an Industrial "
         "Predictive Maintenance Dashboard for rolling-element bearing fault "

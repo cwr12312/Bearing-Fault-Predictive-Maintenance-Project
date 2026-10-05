@@ -396,16 +396,12 @@ def render_xai_explanation(
     # data and an optional technician note / maintenance log entry.
     # ------------------------------------------------------------------
     with st.expander(" ROOT CAUSE REASONING(decision support)"):
-        st.caption("Combines structured sensor data (RMS, kurtosis, crest factor) with an "
-                   "optional maintenance-log note to suggest possible causes. This is "
+        st.caption("Uses structured sensor data (RMS, kurtosis, crest factor) for the predicted "
+                   "fault to suggest possible causes. This is "
                    "decision support for a human to verify — never a guaranteed diagnosis.")
-        tech_note = st.text_area(
-            "Technician note / maintenance log entry (optional)", key=f"tech_note_{model_name}",
-            placeholder="e.g. Bearing was replaced 3 months ago; unusual noise reported last week.",
-        )
         if st.button("Analyze possible root causes", key=f"root_cause_btn_{model_name}"):
             rc_text, rc_mode = llm_assistant.root_cause_reasoning(
-                predicted_display, confidence, feat_ctx, tech_note,
+                predicted_display, confidence, feat_ctx, "",
             )
             st.markdown(rc_text)
 
@@ -416,21 +412,12 @@ def render_xai_explanation(
     # human to review, not as auto-generated ground-truth labels.
     # ------------------------------------------------------------------
     with st.expander("Mine Maintenance History (extract structured info from notes)"):
-        st.caption("Paste free-text maintenance notes or technician logs. This extracts "
+        st.caption("Click the button to generate the maintenance history for the predicted fault. This extracts "
                    "recurring faults and failure events to help spot patterns — useful as a "
                    "starting point for retroactive labeling, always subject to human review.")
-        notes_text = st.text_area(
-            "Maintenance notes / technician log", key=f"notes_mine_{model_name}", height=140,
-            value=("03/12: Bearing replaced due to inner race pitting.\n"
-                   "14/12: Unusual vibration noted during routine round.\n"
-                   "02/01: Recurring high-frequency noise near drive-end bearing."),
-        )
         if st.button("Extract structured info", key=f"mine_notes_btn_{model_name}"):
-            if not notes_text.strip():
-                st.warning("Paste some maintenance notes above first.")
-            else:
-                mined_text, mined_mode = llm_assistant.summarize_maintenance_notes(notes_text)
-                st.markdown(mined_text)
+            mined_text, mined_mode = llm_assistant.maintenance_history_for_fault(predicted_display)
+            st.markdown(mined_text)
 
     # ------------------------------------------------------------------
     # SCENARIO GENERATION & DOCUMENTATION

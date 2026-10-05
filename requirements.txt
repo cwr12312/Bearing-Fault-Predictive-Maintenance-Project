@@ -16,13 +16,7 @@ shap>=0.45,<1.0
 
 openpyxl>=3.1,<4.0
 python-docx>=1.1,<2.0
-
-# Optional: only needed if you connect a live LLM API on the Live Prediction
-# page (see utils/llm_assistant.py). The dashboard works fully without this —
-# all LLM features fall back to grounded, template-based responses.
-#
 # openai is REQUIRED for the Groq provider — utils/llm_assistant.py calls
-# Groq through the OpenAI-compatible client (`from openai import OpenAI`).
 # This was missing before, so on a clean Streamlit Cloud deploy the import
 # would fail and every "Manage Agent" / LLM call would silently fall back
 # to the template mode even with a valid GROQ_API_KEY set.
