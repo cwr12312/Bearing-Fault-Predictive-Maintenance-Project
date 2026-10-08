@@ -24,4 +24,3 @@ Windows users can instead double-click **`run_dashboard.bat`**, which creates a 
 environment, installs dependencies and launches the app automatically.
 
 The app opens at `http://localhost:8501`.
-

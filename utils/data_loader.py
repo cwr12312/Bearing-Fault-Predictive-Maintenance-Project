@@ -15,15 +15,18 @@ from config import METRICS_CSV            # path to the pre-computed model_metri
 
 @st.cache_data(show_spinner=False)         # cache so the CSV is only read from disk once per session
 def load_metrics() -> pd.DataFrame:
-    df = pd.read_csv(METRICS_CSV)                                                       # read the raw metrics CSV into a DataFrame
-    df = df.sort_values("average_score", ascending=False).reset_index(drop=True)          # order models best -> worst by average score
-    df["computed_rank"] = df["average_score"].rank(ascending=False, method="min").astype(int)  # assign integer rank (1 = best), ties share the same rank
-    return df                                                                              # return the ranked metrics table
+    df = pd.read_csv(METRICS_CSV)                                   # read the raw metrics CSV into a DataFrame
+    # The official project ranking lives in the CSV "rank" column
+    # (1 FBCL, 2 Meta-SGD, 3 2D CNN, 4 LSTM, 5 Transformer, 6 MAML).
+    # It is used as-is so every page, chart and the Manage Agent show the same order.
+    df["computed_rank"] = df["rank"].astype(int)
+    df = df.sort_values("computed_rank").reset_index(drop=True)      # best -> worst
+    return df
 
 
 def best_model_row(df: pd.DataFrame = None) -> pd.Series:
     df = df if df is not None else load_metrics()          # use provided DataFrame or load metrics fresh if none given
-    return df.sort_values("average_score", ascending=False).iloc[0]  # return the single row with the highest average score
+    return df.sort_values("computed_rank").iloc[0]  # return the single row with the highest average score
 
 
 def get_row(model_name: str, df: pd.DataFrame = None) -> pd.Series:

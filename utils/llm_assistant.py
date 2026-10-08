@@ -184,6 +184,17 @@ def call_llm(system: str, user: str) -> tuple[Optional[str], str]:
         return None, "template"
 
 
+def ranking_table_text() -> str:
+    """Official model ranking (from data/model_metrics.csv) as plain text for LLM prompts."""
+    m = load_metrics().sort_values("computed_rank")
+    return "\n".join(
+        f"Rank {int(r['computed_rank'])}: {r['model_name']} - accuracy {r['accuracy']*100:.2f}%, "
+        f"precision {r['precision']*100:.2f}%, recall {r['recall']*100:.2f}%, "
+        f"F1 {r['f1_score']*100:.2f}%, inference {r['inference_time_ms']:.1f} ms"
+        for _, r in m.iterrows()
+    )
+
+
 def family_for_display(predicted_display: str) -> str:
     """
     Maps a human-readable class label (e.g. "Inner Race Fault — 0.014in")
@@ -276,12 +287,13 @@ def answer_dashboard_query(question: str, session_history: list[dict] | None = N
     """
     metrics = load_metrics()
     best = best_model_row(metrics)
-    metrics_context = metrics[["model_name", "accuracy", "precision", "recall", "f1_score",
+    metrics_context = metrics[["computed_rank", "model_name", "accuracy", "precision", "recall", "f1_score",
                                 "average_score", "inference_time_ms", "model_type"]].to_dict(orient="records")
     history_context = (session_history or [])[:50]
 
     system = (
         "You are a data assistant for an industrial predictive-maintenance dashboard. "
+        "The official ranking is given in the context (field 'rank'); never re-rank. "
         "Answer ONLY using the JSON context provided below — model metrics AND this "
         "session's real logged predictions. Never invent figures. If the session history "
         "is empty or doesn't cover the question (e.g. a multi-week trend), say so plainly "
@@ -717,6 +729,17 @@ def answer_basic_dashboard_question(question: str) -> str | None:
     mentions_model = "model" in q or "models" in q
     n = _basic_requested_count(q, total)
 
+    # Rank of one specific model, e.g. "what is the rank of LSTM"
+    if "rank" in q or "position" in q or "place" in q:
+        aliases = {"cnn": "cnn2d", "2d cnn": "cnn2d", "lstm": "lstm", "transformer": "transformer",
+                   "maml": "maml", "meta-sgd": "meta_sgd", "meta sgd": "meta_sgd",
+                   "metasgd": "meta_sgd", "fbcl": "fbcl"}
+        for alias in sorted(aliases, key=len, reverse=True):
+            if alias in q and not (alias == "maml" and "meta-sgd" in q):
+                row = metrics[metrics["model_id"] == aliases[alias]].iloc[0]
+                return (f"**{row['model_name']}** is ranked **#{int(row['computed_rank'])}** of {total} "
+                        f"(accuracy {row['accuracy']*100:.2f}%, F1 {row['f1_score']*100:.2f}%).")
+
     # Worst / lowest ranked
     if mentions_model and any(w in q for w in (" worst ", " lowest ", " weakest ", " least ", " bottom ")):
         w = metrics.iloc[-1]
@@ -801,7 +824,10 @@ def chat_with_agent(history: list[dict]) -> tuple[str, str]:
         "7. Never claim to retrain, replace, or modify any of the six models.\n"
         "8. Keep normal conversational answers concise and clear.\n"
         "9. Use Markdown when it improves readability.\n"
-        "10. Answer the user's actual question directly."
+        "10. Answer the user's actual question directly.\n\n"
+
+        "OFFICIAL MODEL RANKING (authoritative - always use exactly these ranks, "
+        "never re-rank or guess):\n" + ranking_table_text()
     )
 
     convo = "\n".join(
@@ -829,69 +855,154 @@ def chat_with_agent(history: list[dict]) -> tuple[str, str]:
     return fallback, mode
 
 
+# Fixed, per-fault fusion profile. Each of the 10 classes has ONE specific
+# result: what thermal / acoustic behaviour is expected, and the verdict.
+_FUSION_PROFILES = {
+    "Normal": dict(
+        thermal="Temperature should sit at its normal baseline (within about +5 C).",
+        acoustic="A smooth, steady hum with no knocking, clicking or grinding.",
+        keywords=(),
+        verdict="All evidence points to a healthy bearing. Continue routine monitoring; no maintenance action is needed.",
+    ),
+    "Ball_007": dict(
+        thermal="Little or no temperature rise is expected at this mild stage (under about +5 C).",
+        acoustic="Faint, irregular clicking that is hard to hear over background noise.",
+        keywords=("click", "tick", "irregular", "faint"),
+        verdict="Early-stage ball defect (mild). Keep running, trend vibration weekly and plan an inspection at the next scheduled stop.",
+    ),
+    "Ball_014": dict(
+        thermal="A slight rise of roughly +5 to +10 C is expected.",
+        acoustic="Intermittent clicking or rattling that is easier to notice at higher speed.",
+        keywords=("click", "rattl", "tick", "intermittent"),
+        verdict="Moderate ball defect. Schedule maintenance within the next planned window and monitor temperature closely.",
+    ),
+    "Ball_021": dict(
+        thermal="A clear rise of +10 C or more is expected.",
+        acoustic="Persistent rattling or rumbling, often with a rough running feel.",
+        keywords=("rattl", "rumbl", "rough", "grind"),
+        verdict="Severe ball defect. Plan a bearing replacement soon and limit operation until it is inspected.",
+    ),
+    "IR_007": dict(
+        thermal="A small rise (about +5 C) is expected as friction starts to increase.",
+        acoustic="A light, regular tapping or buzzing tied to shaft speed.",
+        keywords=("tap", "buzz", "whin", "regular"),
+        verdict="Early inner-race defect (mild). Inspect promptly, because inner-race faults progress faster than ball faults.",
+    ),
+    "IR_014": dict(
+        thermal="A noticeable rise of about +10 C is expected.",
+        acoustic="A steady, pulsing growl or whine at shaft speed.",
+        keywords=("growl", "whine", "pulse", "tap", "buzz"),
+        verdict="Moderate inner-race defect. Reduce load or speed and replace the bearing at the earliest opportunity.",
+    ),
+    "IR_021": dict(
+        thermal="A strong rise of +15 C or more is expected.",
+        acoustic="Loud, harsh grinding or howling with strong vibration.",
+        keywords=("grind", "howl", "loud", "harsh", "screech"),
+        verdict="Severe inner-race defect. Stop or heavily derate the machine and replace the bearing immediately.",
+    ),
+    "OR_007_6": dict(
+        thermal="A mild rise (about +5 C) is expected, mostly at the housing.",
+        acoustic="A faint rhythmic knocking or rumbling from the housing.",
+        keywords=("knock", "rumbl", "rhythm", "thump"),
+        verdict="Early outer-race defect (mild) at the 6 o'clock load zone. Check lubrication and alignment now and re-test soon.",
+    ),
+    "OR_014_6": dict(
+        thermal="A clear rise of +10 C or more is expected.",
+        acoustic="A distinct, repeating knock or thump that is easy to hear.",
+        keywords=("knock", "thump", "rumbl", "rhythm", "repeat"),
+        verdict="Moderate outer-race defect. Notify the maintenance supervisor and prepare for a shutdown and replacement.",
+    ),
+    "OR_021_6": dict(
+        thermal="A large rise of +15 C or more is expected.",
+        acoustic="A heavy, loud pounding or roaring from the housing.",
+        keywords=("pound", "roar", "loud", "knock", "thump", "heavy"),
+        verdict="Severe outer-race defect. Shut the machine down and replace the bearing before restarting.",
+    ),
+}
+
+_THERMAL_NEEDS = {  # minimum delta (C) above baseline that matches each fault
+    "Normal": None, "Ball_007": 0, "Ball_014": 5, "Ball_021": 10,
+    "IR_007": 3, "IR_014": 8, "IR_021": 15,
+    "OR_007_6": 3, "OR_014_6": 10, "OR_021_6": 15,
+}
+
+
+def _class_from_display(predicted_display: str) -> str:
+    for cname, cdisp in CLASS_DISPLAY_NAMES.items():
+        if cdisp == predicted_display:
+            return cname
+    return "Ball_007"
+
+
 def multimodal_fusion_reasoning(predicted_display: str, confidence: float, family: str, risk: str,
                                  thermal_temp_c: float | None = None,
                                  thermal_baseline_c: float | None = None,
                                  acoustic_note: str = "",
                                  maintenance_note: str = "") -> tuple[str, str]:
     """
-    Combines the real vibration-model prediction with whichever optional
-    modalities the technician actually filled in (thermal reading,
-    acoustic note, maintenance text) into a single fused assessment. Any
-    modality left blank/None is simply omitted from `modalities` below —
-    nothing about a missing modality is guessed or invented.
+    Deterministic fusion: every fault class has its own fixed profile, and the
+    same fault + same inputs ALWAYS give the same result. No LLM call, no
+    randomness, and the confidence value is not printed (it varies per model).
     """
-    # Vibration is always present since it's the real model output; every
-    # other entry below is added conditionally based on what was supplied.
-    modalities = [f"Vibration (ML model): {predicted_display}, {confidence*100:.1f}% confidence, "
-                  f"classified {risk}-risk."]
-    if thermal_temp_c is not None:
-        line = f"Thermal: {thermal_temp_c:.1f}°C reading"
-        if thermal_baseline_c is not None:
-            delta = thermal_temp_c - thermal_baseline_c
-            line += f" vs. {thermal_baseline_c:.1f}°C baseline ({delta:+.1f}°C)"
-        modalities.append(line + ".")
-    if acoustic_note.strip():
-        modalities.append(f"Acoustic: technician-reported — \"{acoustic_note.strip()}\"")
-    if maintenance_note.strip():
-        modalities.append(f"Maintenance text: \"{maintenance_note.strip()}\"")
+    cname = _class_from_display(predicted_display)
+    prof = _FUSION_PROFILES[cname]
+    is_normal = cname == "Normal"
 
-    if len(modalities) == 1:
-        # Nothing besides vibration was provided — there's no fusion to do,
-        # so say so plainly instead of pretending to combine modalities.
-        return ("Only the vibration modality has data — add a thermal reading, acoustic note, "
+    has_thermal = thermal_temp_c is not None
+    has_acoustic = bool(acoustic_note.strip())
+    has_text = bool(maintenance_note.strip())
+    if not (has_thermal or has_acoustic or has_text):
+        return ("Only the vibration modality has data - add a thermal reading, acoustic note, "
                 "or maintenance note above to fuse them into a combined assessment."), "template"
 
-    system = (
-        "You are a multimodal industrial-monitoring reasoning layer. You are given real "
-        "readings from up to four modalities (vibration-model prediction, thermal, acoustic, "
-        "maintenance text). Combine them into ONE fused assessment: state whether the "
-        "modalities agree or conflict, and give a combined risk read. This is decision "
-        "support, never a guaranteed diagnosis. Never invent a modality reading you were not given."
-    )
-    user = "Modality readings:\n" + "\n".join(f"- {m}" for m in modalities)
-    text, mode = call_llm(system, user)
-    if text:
-        return text, mode
+    lines = [f"**Fused assessment - {predicted_display}** (risk: {risk})", "",
+             f"- **Vibration (ML model):** {predicted_display}, classified {risk}-risk."]
+    agree, conflict = 0, 0
 
-    # Template fallback — simple, honest rule-based fusion of only the
-    # modalities that were actually provided.
-    lines = [f"**Fused assessment** (combining {len(modalities)} modalit{'y' if len(modalities)==1 else 'ies'}):"]
-    lines += [f"- {m}" for m in modalities]
-    flags = []
-    if thermal_temp_c is not None and thermal_baseline_c is not None and (thermal_temp_c - thermal_baseline_c) > 10:
-        flags.append("thermal reading is notably above baseline")
-    if acoustic_note.strip():
-        flags.append("an acoustic anomaly was reported by a technician")
-    if risk in ("High", "Critical"):
-        flags.append("the vibration model already flags elevated risk")
-    if flags:
-        lines.append(f"\n**Agreement check:** {'; '.join(flags)} — these modalities corroborate "
-                      f"each other, which increases confidence this is a real, developing issue "
-                      f"rather than a sensor artifact.")
+    if has_thermal:
+        if thermal_baseline_c is not None:
+            delta = thermal_temp_c - thermal_baseline_c
+            text = f"{thermal_temp_c:.1f} C vs {thermal_baseline_c:.1f} C baseline ({delta:+.1f} C)."
+            need = _THERMAL_NEEDS[cname]
+            if is_normal:
+                ok = delta <= 5
+            else:
+                ok = delta >= need
+            agree += ok; conflict += (not ok)
+            lines.append(f"- **Thermal:** {text} Expected for this fault: {prof['thermal']} "
+                         f"-> {'consistent' if ok else 'does not match'}.")
+        else:
+            lines.append(f"- **Thermal:** {thermal_temp_c:.1f} C (no baseline given). Expected: {prof['thermal']}")
+
+    if has_acoustic:
+        note = acoustic_note.strip().lower()
+        hit = any(k in note for k in prof["keywords"])
+        if is_normal:
+            hit = not any(w in note for w in ("knock", "grind", "click", "rattl", "howl", "whin",
+                                              "pound", "roar", "buzz", "thump", "rumbl", "growl"))
+        agree += hit; conflict += (not hit)
+        lines.append(f"- **Acoustic:** \"{acoustic_note.strip()}\". Expected: {prof['acoustic']} "
+                     f"-> {'consistent' if hit else 'does not clearly match'}.")
+
+    if has_text:
+        note = maintenance_note.strip().lower()
+        wear = any(w in note for w in ("overdue", "not serviced", "never serviced", "vibration", "noise",
+                                      "leak", "dry", "misalign", "overheat", "replaced"))
+        lines.append(f"- **Maintenance text:** \"{maintenance_note.strip()}\"" +
+                     (" -> contains wear/maintenance flags worth checking." if wear else " -> no extra flags found."))
+
+    lines.append("")
+    if conflict == 0 and agree > 0:
+        lines.append(f"**Agreement check:** all supplied modalities agree with the vibration result, "
+                     f"which strengthens the {predicted_display} diagnosis.")
+    elif agree == 0 and conflict > 0:
+        lines.append("**Agreement check:** the extra modalities do NOT match the vibration result. "
+                     "Re-check the sensors and readings, and confirm with a manual inspection.")
+    elif agree > 0:
+        lines.append("**Agreement check:** the modalities partly agree. Treat the vibration result as "
+                     "the main evidence and verify the mismatching readings.")
     else:
-        lines.append("\n**Agreement check:** no additional modality raised a flag beyond the "
-                      "vibration model — no corroborating evidence of an issue from the other "
-                      "inputs provided.")
-    lines.append("\n⚠ Decision support only — verify with a physical inspection before acting.")
-    return "\n".join(lines), mode
+        lines.append("**Agreement check:** only text notes were supplied, so there is no numeric cross-check.")
+    lines.append(f"\n**Combined verdict:** {prof['verdict']}")
+    lines.append("\nDecision support only - verify with a physical inspection before acting.")
+    return "\n".join(lines), "template"
