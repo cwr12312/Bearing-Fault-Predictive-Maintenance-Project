@@ -1,0 +1,530 @@
+/* =========================================================================
+   Industrial Predictive Maintenance Dashboard — Dark / Industrial-Blue Theme
+   ========================================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap'); 
+ 
+:root{ 
+  /* Core color palette, exposed as CSS variables and reused everywhere below */
+  --bg-primary:#0B1220;            /* main app background */
+  --bg-secondary:#111A2E;          /* sidebar / secondary background */
+  --bg-card:#152238;               /* default card background */
+  --bg-card-hover:#1B2C4A;         /* card/tab hover background */
+  --border:#22314D;                /* default border color */
+  --accent-blue:#2E8FFF;           /* primary accent (buttons, highlights) */
+  --accent-blue-light:#5CB2FF;     /* lighter accent for text/labels */
+  --accent-cyan:#22D3EE;           /* secondary accent (gradients) */
+  --accent-green:#22C55E;          /* success / positive-delta color */
+  --accent-amber:#F59E0B;          /* warning / medium-risk color */
+  --accent-red:#EF4444;            /* error / negative-delta / high-risk color */
+  --text-primary:#E8EEFC;          /* main text color */
+  --text-secondary:#93A2C2;        /* secondary/muted text color */
+  --text-muted:#5E6C8C;            /* most-muted text color (footer, subtext) */
+} 
+ 
+html, body, [class*="css"]{ 
+  font-family:'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;   /* app-wide base font */
+} 
+ 
+/* ---- App background --------------------------------------------------- */ 
+.stApp{ 
+  background: 
+    radial-gradient(circle at 15% 0%, rgba(46,143,255,0.10), transparent 45%),   /* subtle blue glow, top-left */
+    radial-gradient(circle at 85% 15%, rgba(34,211,238,0.07), transparent 40%),  /* subtle cyan glow, top-right */
+    var(--bg-primary) !important; 
+  color: var(--text-primary); 
+} 
+ 
+/* ---- Sidebar / Navigation -------------------------------------------- */
+/* Increased from 262px to 320px */
+
+section[data-testid="stSidebar"]{ 
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);   /* vertical gradient for sidebar depth */
+  border-right: 1px solid var(--border); 
+  min-width: 320px !important;    /* fixed sidebar width (see note above) */
+  max-width: 320px !important; 
+  width: 320px !important; 
+} 
+
+section[data-testid="stSidebar"] > div{ 
+  width: 320px !important;        /* keep Streamlit's inner sidebar wrapper matching the fixed width */
+} 
+
+section[data-testid="stSidebar"] * { 
+  color: var(--text-primary);     /* force all sidebar text/icons to use the primary text color */
+} 
+ 
+/* ---- Navigation links: slightly larger, more comfortable tap targets --- */ 
+section[data-testid="stSidebar"] [data-testid="stPageLink"]{ 
+  padding: 5px 4px !important;    /* extra padding around each nav link for easier tapping */
+} 
+
+section[data-testid="stSidebar"] [data-testid="stPageLink"] p{ 
+  font-size: 0.93rem !important;  /* slightly larger nav link text */
+} 
+ 
+/* ---- Main content: fitted width instead of edge-to-edge -----------------*/ 
+.block-container{ 
+  max-width: 1280px !important;   /* cap content width for readability on wide screens */
+  padding-top: 2rem !important; 
+  padding-left: 3rem !important; 
+  padding-right: 3rem !important; 
+  margin: 0 auto !important;      /* center the content block */
+} 
+ 
+/* ---- Headings ----------------------------------------------------------*/ 
+h1, h2, h3{ 
+  font-weight:800 !important;     /* bold headings across the app */
+  letter-spacing:-0.02em; 
+  color: var(--text-primary) !important; 
+} 
+
+h1{ 
+  font-size: 2.0rem !important; 
+} 
+
+h2{ 
+  font-size: 1.4rem !important; 
+  margin-top: 0.4rem !important;
+} 
+
+h3{ 
+  font-size: 1.1rem !important; 
+  color: var(--accent-blue-light) !important;   /* h3 uses the accent color instead of default text color */
+} 
+ 
+hr{ 
+  border-color: var(--border) !important;       /* dividers match the theme's border color */
+} 
+ 
+/* ---- KPI cards -----------------------------------------------------------*/ 
+.kpi-card{ 
+  background: linear-gradient(155deg, var(--bg-card) 0%, var(--bg-secondary) 100%);  /* diagonal gradient card background */
+  border: 1px solid var(--border); 
+  border-radius: 16px; 
+  padding: 18px 20px; 
+  position: relative;             /* needed so the ::before accent bar below can be absolutely positioned */
+  overflow: hidden; 
+  transition: all .25s ease;      /* smooth hover animation */
+  box-shadow: 0 4px 18px rgba(0,0,0,0.25); 
+} 
+
+.kpi-card:hover{ 
+  transform: translateY(-3px);    /* lift the card slightly on hover */
+  border-color: var(--accent-blue); 
+  box-shadow: 0 10px 28px rgba(46,143,255,0.18);  /* stronger glow shadow on hover */
+} 
+
+.kpi-card::before{ 
+  content:"";                     /* decorative top accent stripe on every KPI card */
+  position:absolute; 
+  top:0; 
+  left:0; 
+  right:0; 
+  height:3px; 
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan)); 
+} 
+
+.kpi-label{ 
+  color: var(--text-secondary); 
+  font-size: 0.72rem; 
+  font-weight: 700; 
+  letter-spacing: 0.08em; 
+  text-transform: uppercase;      /* small uppercase label above the KPI value */
+  margin-bottom: 6px; 
+} 
+
+.kpi-value{ 
+  color: var(--text-primary); 
+  font-size: 1.9rem; 
+  font-weight: 800; 
+  line-height: 1.1; 
+  font-family:'JetBrains Mono', monospace;   /* monospace font makes numeric KPI values easier to scan */
+} 
+
+.kpi-sub{ 
+  color: var(--text-muted); 
+  font-size: 0.78rem; 
+  margin-top: 4px; 
+} 
+
+.kpi-delta-up{ 
+  color: var(--accent-green);     /* positive trend indicator */
+  font-weight:700; 
+  font-size:0.8rem;
+} 
+
+.kpi-delta-down{ 
+  color: var(--accent-red);       /* negative trend indicator */
+  font-weight:700; 
+  font-size:0.8rem;
+} 
+ 
+/* ---- Generic panel card ---------------------------------------------- */ 
+.panel-card{ 
+  background: var(--bg-card); 
+  border: 1px solid var(--border); 
+  border-radius: 16px; 
+  padding: 20px 22px; 
+  box-shadow: 0 4px 18px rgba(0,0,0,0.22); 
+} 
+ 
+/* ---- Badges ------------------------------------------------------------*/ 
+.badge{ 
+  display:inline-block; 
+  padding: 3px 12px; 
+  border-radius: 999px;           /* fully rounded pill shape */
+  font-size: 0.72rem; 
+  font-weight: 700; 
+  letter-spacing:0.03em; 
+} 
+
+.badge-blue{ 
+  background: rgba(46,143,255,0.15); 
+  color: var(--accent-blue-light); 
+  border:1px solid rgba(46,143,255,0.35);
+} 
+
+.badge-green{ 
+  background: rgba(34,197,94,0.15); 
+  color: var(--accent-green); 
+  border:1px solid rgba(34,197,94,0.35);
+} 
+
+.badge-amber{ 
+  background: rgba(245,158,11,0.15); 
+  color: var(--accent-amber); 
+  border:1px solid rgba(245,158,11,0.35);
+} 
+
+.badge-red{ 
+  background: rgba(239,68,68,0.15); 
+  color: var(--accent-red); 
+  border:1px solid rgba(239,68,68,0.35);
+} 
+ 
+/* ---- Rank medals ---------------------------------------------------------*/ 
+.rank-gold{ 
+  color:#FFD700;                  /* gold color for 1st place */
+  font-size:1.3rem;
+} 
+
+.rank-silver{ 
+  color:#C0C0C0;                  /* silver color for 2nd place */
+  font-size:1.3rem;
+} 
+
+.rank-bronze{ 
+  color:#CD7F32;                  /* bronze color for 3rd place */
+  font-size:1.3rem;
+} 
+ 
+/* ---- Alert / recommendation cards ------------------------------------ */ 
+.alert-card{ 
+  border-radius:14px; 
+  padding: 18px 20px; 
+  border-left: 5px solid var(--accent-blue);   /* default left accent stripe, overridden per risk level below */
+  background: var(--bg-card); 
+  margin-bottom: 14px; 
+} 
+
+.alert-card.risk-low{ 
+  border-left-color: var(--accent-green);      /* low risk -> green accent */
+} 
+
+.alert-card.risk-medium{ 
+  border-left-color: var(--accent-amber);      /* medium risk -> amber accent */
+} 
+
+.alert-card.risk-high{ 
+  border-left-color: var(--accent-red);        /* high risk -> red accent */
+} 
+
+.alert-card.risk-critical{ 
+  border-left-color:#B91C1C;                   /* critical risk -> darker red accent */
+  background: linear-gradient(90deg, rgba(185,28,28,0.12), var(--bg-card));  /* subtle red-tinted background for critical alerts */
+} 
+
+.alert-title{ 
+  font-weight:800; 
+  font-size:1.05rem; 
+  margin-bottom:6px;
+} 
+
+.alert-item{ 
+  color: var(--text-secondary); 
+  font-size:0.92rem; 
+  margin: 3px 0;
+} 
+ 
+/* ---- Buttons ------------------------------------------------------------*/ 
+.stButton>button, 
+.stDownloadButton>button{ 
+  background: linear-gradient(135deg, var(--accent-blue), #1C6FE0);   /* blue gradient pill for all standard buttons */
+  color:white; 
+  border:none; 
+  border-radius:10px; 
+  font-weight:700; 
+  padding: 0.55rem 1.2rem; 
+  transition: all .2s ease; 
+} 
+
+.stButton>button:hover, 
+.stDownloadButton>button:hover{ 
+  filter: brightness(1.12);       /* brighten slightly on hover */
+  transform: translateY(-1px);    /* subtle lift on hover */
+} 
+ 
+/* ---- Tabs ----------------------------------------------------------------*/ 
+.stTabs [data-baseweb="tab-list"]{ 
+  gap: 4px;
+} 
+
+.stTabs [data-baseweb="tab"]{ 
+  background: var(--bg-card); 
+  border-radius: 10px 10px 0 0;   /* rounded top corners only, like a real tab */
+  color: var(--text-secondary); 
+  padding: 8px 18px; 
+  border: 1px solid var(--border); 
+  border-bottom:none; 
+} 
+
+.stTabs [aria-selected="true"]{ 
+  color: var(--text-primary) !important;          /* highlight the currently active tab */
+  background: var(--bg-card-hover) !important; 
+  border-color: var(--accent-blue) !important; 
+} 
+ 
+/* ---- DataFrames / tables ---------------------------------------------- */ 
+[data-testid="stDataFrame"]{ 
+  border: 1px solid var(--border); 
+  border-radius: 12px; 
+  overflow: hidden;                /* clips table corners to match the rounded border */
+} 
+ 
+/* ---- Metric widget override -------------------------------------------- */ 
+[data-testid="stMetric"]{ 
+  background: var(--bg-card); 
+  border:1px solid var(--border); 
+  border-radius: 14px; 
+  padding: 14px 16px; 
+} 
+
+[data-testid="stMetricLabel"]{ 
+  color: var(--text-secondary) !important; 
+} 
+
+[data-testid="stMetricValue"]{ 
+  color: var(--text-primary) !important; 
+  font-family:'JetBrains Mono', monospace;   /* monospace for numeric metric values, matching KPI cards */
+} 
+ 
+/* ---- Divider / section title ------------------------------------------- */ 
+.section-title{ 
+  display:flex; 
+  align-items:center; 
+  gap:10px; 
+  margin: 6px 0 14px 0; 
+} 
+
+.section-title .bar{ 
+  width:5px; 
+  height:24px; 
+  border-radius:4px; 
+  background: linear-gradient(180deg, var(--accent-blue), var(--accent-cyan));   /* small vertical accent bar next to section titles */
+} 
+
+.section-title h3{ 
+  margin:0 !important;             /* remove default heading margin so it aligns tightly with the accent bar */
+} 
+ 
+/* ---- Footer --------------------------------------------------------------*/ 
+.app-footer{ 
+  text-align:center; 
+  color: var(--text-muted); 
+  font-size: 0.78rem; 
+  padding: 24px 0 8px 0; 
+  border-top: 1px solid var(--border); 
+  margin-top: 30px; 
+} 
+ 
+/* Hide default streamlit chrome for a more "product" feel */ 
+#MainMenu { 
+  visibility:hidden;               /* hides Streamlit's default hamburger menu */
+} 
+
+footer { 
+  visibility:hidden;                /* hides Streamlit's default "made with Streamlit" footer */
+} 
+
+header[data-testid="stHeader"]{ 
+  background: transparent;          /* makes the default Streamlit header blend into the app background */
+} 
+ 
+/* ========================================================================= 
+   Manage Agent — sidebar nav trigger + floating chat panel 
+   ========================================================================= */ 
+ 
+/* Nav button restyled to match the plain st.page_link nav items above it 
+   (the global .stButton>button rule turns buttons into blue gradient pills 
+   — this scopes an override, by key, to just this one button). */ 
+
+.st-key-nav_manage_agent{ 
+  display: flex !important; 
+  width: auto !important; 
+} 
+
+.st-key-nav_manage_agent button{ 
+  background: rgba(92,178,255,0.16) !important;    /* subtle tinted background instead of the default blue gradient */
+  color: var(--accent-blue-light) !important; 
+  border: 1px solid rgba(92,178,255,0.4) !important; 
+  box-shadow: none !important; 
+  border-radius: 0.5rem !important; 
+  font-weight: 600 !important; 
+  font-size: 0.92rem !important; 
+  padding: 0.35rem 0.9rem !important; 
+  width: fit-content !important;                    /* only as wide as its label, unlike full-width default buttons */
+  min-width: 0 !important; 
+  justify-content: center !important; 
+  text-align: center !important; 
+  transition: background-color .15s ease; 
+} 
+
+.st-key-nav_manage_agent button:hover{ 
+  background: rgba(92,178,255,0.28) !important;      /* slightly stronger tint on hover */
+  color: var(--accent-blue-light) !important; 
+  transform: none !important;                          /* explicitly cancel the global button's hover-lift effect */
+  filter: none !important;                              /* explicitly cancel the global button's hover-brighten effect */
+} 
+
+.st-key-nav_manage_agent button p{ 
+  font-family:'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; 
+  font-size: 0.92rem !important; 
+  font-weight: 600 !important; 
+  margin: 0 !important; 
+  white-space: nowrap !important;                        /* keep the button label on a single line */
+} 
+ 
+/* Floating chat panel — fixed overlay, doesn't affect page flow/layout */ 
+
+.st-key-manage_agent_panel{ 
+  position: fixed !important;        /* floats above the page content, doesn't shift surrounding layout */
+  top: 76px; 
+  right: 24px; 
+  width: 48vw; 
+  max-width: 720px; 
+  min-width: 320px; 
+  max-height: calc(100vh - 100px);   /* keeps the panel within the viewport height */
+  background: #FFFFFF !important;    /* deliberately light/white panel, contrasting with the dark app theme */
+  border-radius: 18px !important; 
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45), 
+              0 0 0 1px rgba(0,0,0,0.06) !important;   /* strong drop shadow to visually separate it from the page below */
+  z-index: 999999 !important;         /* ensure it renders above all other page content */
+  padding: 16px 20px 14px 20px !important; 
+  overflow-y: auto;                    /* scrolls internally if content exceeds max-height */
+} 
+
+@media (max-width: 900px){ 
+  .st-key-manage_agent_panel{ 
+    width: calc(100vw - 32px);        /* on small screens, panel nearly fills the viewport width */
+    right: 16px; 
+    left: 16px; 
+    top: 70px; 
+    max-height: calc(100vh - 90px); 
+  } 
+} 
+
+.st-key-manage_agent_panel, 
+.st-key-manage_agent_panel p, 
+.st-key-manage_agent_panel span, 
+.st-key-manage_agent_panel label{ 
+  color: #1A1F2B !important;          /* dark text, appropriate against the panel's light/white background */
+} 
+
+.agent-panel-header{ 
+  font-family:'Inter', sans-serif; 
+  font-weight: 800; 
+  font-size: 1.1rem; 
+  color: #0B1220 !important; 
+  padding: 2px 0 10px 0; 
+  border-bottom: 1px solid #E5E9F0; 
+  margin-bottom: 8px; 
+} 
+
+.st-key-agent_panel_close_btn button{ 
+  background: #F1F3F8 !important;     /* light gray close ("X") button, styled apart from the main blue buttons */
+  color: #333 !important; 
+  border: none !important; 
+  border-radius: 8px !important; 
+  padding: 0.2rem 0.6rem !important; 
+  font-weight: 700 !important; 
+  min-height: 0 !important; 
+  box-shadow: none !important; 
+} 
+
+.st-key-agent_panel_close_btn button:hover{ 
+  background: #E5E9F0 !important; 
+  color: #111 !important; 
+  transform: none !important; 
+  filter: none !important; 
+} 
+
+.st-key-manage_agent_panel_body{ 
+  background: #F8F9FC !important;      /* slightly off-white message-history background, distinct from the panel's white */
+  border-radius: 12px !important; 
+  padding: 4px 8px !important; 
+} 
+
+.agent-panel-empty{ 
+  color: #6B7280 !important;            /* muted gray placeholder text shown before any messages exist */
+  font-size: 0.88rem; 
+  text-align: center; 
+  padding: 26px 8px; 
+} 
+
+.agent-bubble{ 
+  border-radius: 12px; 
+  padding: 8px 12px; 
+  margin: 6px 4px; 
+  font-size: 0.9rem; 
+  line-height: 1.45; 
+  max-width: 88%;                        /* bubbles never span the full panel width, like a typical chat UI */
+  word-wrap: break-word; 
+} 
+
+.agent-bubble-user{ 
+  background: var(--accent-blue) !important;   /* user messages use the app's accent blue */
+  color: #FFFFFF !important; 
+  margin-left: auto;                              /* right-aligns user bubbles */
+} 
+
+.agent-bubble-user, 
+.agent-bubble-user *{ 
+  color:#FFFFFF !important; 
+} 
+
+.agent-bubble-assistant{ 
+  background: #EDEFF5;                    /* light gray for assistant messages, contrasting with the blue user bubbles */
+  color: #1A1F2B !important; 
+  margin-right: auto;                        /* left-aligns assistant bubbles */
+} 
+
+.st-key-manage_agent_panel input{ 
+  border-radius: 10px !important; 
+} 
+
+.st-key-manage_agent_panel .stFormSubmitButton button{ 
+  background: linear-gradient(135deg, var(--accent-blue), #1C6FE0) !important;   /* Send button matches the app's primary blue gradient */
+  color: #FFFFFF !important; 
+  border-radius: 10px !important; 
+  font-weight: 700 !important; 
+  min-height: 2.4rem; 
+} 
+ 
+/* ---- Root Cause Reasoning / Expander Headers -------------------------- */ 
+
+div[data-testid="stExpander"] details summary { 
+  background-color: #D6EEFF !important;   /* light blue header background for expander sections */
+  color: #0B3D66 !important; 
+  border-radius: 8px !important; 
+} 

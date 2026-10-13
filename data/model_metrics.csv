@@ -1,0 +1,7 @@
+model_id,model_name,accuracy,precision,recall,f1_score,average_score,rank,inference_time_ms,model_type,framework
+cnn2d,Two-Dimensional Convolutional Neural Network (2D CNN),0.9455,0.9474,0.9455,0.9457,0.9460,3,0.9,Deep Learning,TensorFlow/Keras
+lstm,Long Short-Term Memory (LSTM),0.9455,0.9464,0.9464,0.9454,0.9459,4,1.4,Deep Learning,TensorFlow/Keras
+transformer,Transformer,0.9061,0.9053,0.9033,0.9031,0.9045,5,1.8,Deep Learning,TensorFlow/Keras
+maml,Model-Agnostic Meta-Learning (MAML),0.8212,0.8057,0.8212,0.8084,0.8141,6,3.2,Meta-Learning,PyTorch
+meta_sgd,Meta Stochastic Gradient Descent (Meta-SGD),0.9455,0.9484,0.9455,0.9448,0.9461,2,2.1,Meta-Learning,PyTorch
+fbcl,Feature-Based Contrastive Learning (FBCL),0.9485,0.9482,0.9485,0.9478,0.9483,1,2.6,Continual Learning,PyTorch
