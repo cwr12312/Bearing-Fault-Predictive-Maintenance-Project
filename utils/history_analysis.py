@@ -12,6 +12,7 @@ no randomness: the same log always gives the same result.
 
 from __future__ import annotations
 
+import datetime as _dt
 from collections import Counter
 
 from config import CLASS_DISPLAY_NAMES, FAULT_FAMILY, SEVERITY_MAP
@@ -135,128 +136,259 @@ def analyze(records: list[dict], predicted_display: str | None = None) -> dict:
         old_rate = sum(1 for c in old if c != "Normal") / len(old)
         new_rate = sum(1 for c in new if c != "Normal") / len(new)
         res["trend"] = (old_rate, new_rate)
+
+    res["weekly"] = _weekly_stats(classes, stamps, cur_class)
+    res["cur_trend"] = _current_fault_trend(classes, res["weekly"], cur_class)
     return res
 
 
-def _fmt_range(a: dict) -> str:
-    if a["first_ts"] and a["last_ts"]:
-        d1, d2 = a["first_ts"][:10], a["last_ts"][:10]
-        return d1 if d1 == d2 else f"{d1} to {d2}"
+def _parse_ts(s: str):
+    try:
+        return _dt.datetime.strptime((s or "").strip()[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def _weekly_stats(classes: list[str], stamps: list[str], cur_class: str | None) -> dict | None:
+    """
+    How often the current fault was recorded in each calendar week (Monday to Sunday).
+    Anchored on the LATEST recorded timestamp, never on the clock, so the numbers
+    never change just because time passes or a button is pressed again.
+    Returns None when no record carries a usable timestamp.
+    """
+    parsed = [(i, _parse_ts(s)) for i, s in enumerate(stamps)]
+    parsed = [(i, d) for i, d in parsed if d is not None]
+    if not parsed or not cur_class:
+        return None
+    first = min(d for _, d in parsed).date()
+    last = max(d for _, d in parsed).date()
+    span_days = (last - first).days + 1
+    monday = lambda d: d - _dt.timedelta(days=d.weekday())
+    weeks, w = [], monday(first)
+    while w <= monday(last):
+        weeks.append(w)
+        w += _dt.timedelta(days=7)
+    tot = {w: 0 for w in weeks}
+    cur = {w: 0 for w in weeks}
+    for i, d in parsed:
+        wk = monday(d.date())
+        tot[wk] += 1
+        if classes[i] == cur_class:
+            cur[wk] += 1
+    cur_total = sum(cur.values())
+    same_second = Counter(stamps[i] for i, _ in parsed)
+    return {
+        "weeks": [(w, cur[w], tot[w]) for w in weeks],
+        "span_days": span_days, "first": first, "last": last,
+        "cur_total": cur_total, "dated": len(parsed), "undated": len(stamps) - len(parsed),
+        "avg_per_week": (cur_total / (span_days / 7)) if span_days >= 7 else None,
+        "avg_per_day": cur_total / span_days,
+        "batch_max": max(same_second.values()) if same_second else 0,
+    }
+
+
+def _current_fault_trend(classes: list[str], weekly: dict | None, cur_class: str | None) -> dict | None:
+    """Is the current fault becoming more or less common? Weeks if there are 2+, else older vs newer half."""
+    if not cur_class or cur_class == "Normal":
+        return None
+    if weekly:
+        used = [(c, t) for _, c, t in weekly["weeks"] if t > 0][-2:]
+        if len(used) == 2:
+            (c0, t0), (c1, t1) = used
+            return {"basis": "weeks", "old": c0 / t0, "new": c1 / t1, "old_n": c0, "new_n": c1}
+    if len(classes) >= 6:
+        half = len(classes) // 2
+        o, n = classes[:half], classes[half:]
+        return {"basis": "halves", "old": o.count(cur_class) / len(o), "new": n.count(cur_class) / len(n),
+                "old_n": o.count(cur_class), "new_n": n.count(cur_class)}
+    return None
+
+
+def _fmt_date(d) -> str:
+    return d.strftime("%d %b %Y").lstrip("0")
+
+
+def _nice_ts(ts: str | None) -> str:
+    d = _parse_ts(ts or "")
+    return d.strftime("%d %b %Y, %H:%M").lstrip("0") if d else (ts or "this session")
+
+
+def _times(n: int) -> str:
+    return "once" if n == 1 else f"{n} times"
+
+
+def _range_text(a: dict) -> str:
+    d1, d2 = _parse_ts(a["first_ts"] or ""), _parse_ts(a["last_ts"] or "")
+    if d1 and d2:
+        return _fmt_date(d1) if d1.date() == d2.date() else f"{_fmt_date(d1)} to {_fmt_date(d2)}"
     return "this session"
 
 
+def _pct(x: float) -> str:
+    return f"{x * 100:.0f}%"
+
+
 def history_markdown(records: list[dict], predicted_display: str) -> str:
-    """The 'Maintenance History' write-up (without the optional pasted-notes section)."""
+    """
+    Plain-language Maintenance History for the predicted fault, laid out as tables.
+    Built only from recorded rows; same log in, same text out.
+    """
     a = analyze(records, predicted_display)
     if not a["total"] and a["excluded"]:
-        return ("**Maintenance History**\n\nAll " + str(a["excluded"]) + " recorded prediction(s) came from inputs far outside "
-                "the range of the training data, so they are excluded as unreliable and there is no trustworthy "
-                "history yet. Run predictions on realistic, in-range inputs (for example rows from the test set).")
+        return ("### Maintenance History\n\nAll " + str(a["excluded"]) + " recorded prediction(s) came from inputs "
+                "that are far outside the data the models were trained on, so they are left out as unreliable. "
+                "There is no trustworthy history yet. Run predictions on realistic inputs (for example rows "
+                "from the test set).")
     if not a["total"]:
-        return ("**Maintenance History**\n\nNo predictions have been recorded yet, so there is no "
-                "history to analyse. Run a prediction first; every prediction is recorded here "
-                "automatically, and repeating faults will show up as the log grows.")
+        return ("### Maintenance History\n\nNo predictions have been recorded yet, so there is nothing to "
+                "analyse. Every prediction is saved automatically; repeating faults will show up here as the "
+                "record grows.")
 
     cur_class, cur_family = a["cur_class"], a["cur_family"]
-    lines = [f"**Maintenance History - recorded faults ({_fmt_range(a)})**", ""]
-    lines.append(f"The system has recorded **{a['total']}** prediction(s): "
-                 f"**{a['fault_total']}** fault reading(s) and **{a['normal_total']}** normal reading(s).")
+    total, cnt = a["total"], a["cur_count"]
+    L: list[str] = [f"### Maintenance History: {predicted_display}", ""]
+    L.append(f"_Based on {total} recorded prediction(s) from {_range_text(a)}. "
+             "This summary stays the same for this fault until the recorded log is cleared._")
 
-    if a["excluded"]:
-        lines.append(f"_{a['excluded']} further prediction(s) were left out because the input was far outside "
-                     "the range of the training data (unreliable)._")
-    if not a["class_counts"]:
-        lines += ["", "No faults have been recorded so far. Every recorded reading was Normal / Healthy."]
-    else:
-        lines += ["", "**Most repeating faults (ranked by number of times recorded):**", "",
-                  "| Rank | Fault | Times recorded | Share of all records | Risk | Last seen |",
-                  "|---|---|---|---|---|---|"]
-        for i, x in enumerate(a["class_counts"][:6], 1):
-            lines.append(f"| {i} | {x['display']} | {x['count']} | {x['share']*100:.0f}% | "
-                         f"{x['risk']} | {x['last_seen'] or 'this session'} |")
-        if len(a["class_counts"]) > 6:
-            lines.append(f"\n_{len(a['class_counts']) - 6} less frequent fault type(s) not shown._")
-
-        if len(a["family_counts"]) > 1 or a["family_counts"]:
-            fam = ", ".join(f"{x['family']} ({x['count']})" for x in a["family_counts"])
-            lines += ["", f"**By fault family:** {fam}."]
-
-    # --- Current predicted fault in context ---------------------------------
-    lines += ["", f"**Current predicted fault: {predicted_display}**"]
+    # ---- In one line ---------------------------------------------------------
     if cur_class == "Normal":
-        lines.append(f"- Recorded as Normal {a['cur_count']} time(s) out of {a['total']}.")
-    elif cur_class:
-        if a["cur_count"] <= 1:
-            lines.append("- This is the **first time** this fault has been recorded; no repeat pattern yet.")
-        else:
-            rank = a["cur_rank"]
-            rk = f" (rank {rank[0]} of {rank[1]} fault types)" if rank else ""
-            lines.append(f"- Recorded **{a['cur_count']} times** out of {a['total']} "
-                         f"({a['cur_count']/a['total']*100:.0f}%){rk} - a **repeating fault**.")
-        if a["cur_streak"] >= 2:
-            lines.append(f"- It appeared in the last **{a['cur_streak']} records in a row**, "
-                         "so the condition is persisting rather than a one-off reading.")
-        if cur_family != "Normal" and a["cur_family_count"] > a["cur_count"]:
-            lines.append(f"- The wider **{cur_family}** family has been recorded "
-                         f"{a['cur_family_count']} times in total (all defect sizes).")
-        if len(a["cur_models"]) > 1:
-            m = ", ".join(f"{k} x{v}" for k, v in sorted(a["cur_models"].items(), key=lambda kv: -kv[1]))
-            lines.append(f"- Recorded by more than one model ({m}), which strengthens confidence that it is real.")
-
-    # --- Pattern findings -----------------------------------------------------
-    findings = []
-    if not a["enough"]:
-        findings.append(f"Only {a['total']} record(s) so far; at least {3} are needed before "
-                        "patterns are meaningful.")
+        one = (f"The bearing was predicted **healthy** in {cnt} of {total} recorded readings "
+               f"({_pct(cnt / total)}).")
+    elif cnt <= 1:
+        one = (f"**{predicted_display}** has been predicted **once** in {total} recorded readings. "
+               "This is the first time, so there is no repeat pattern yet.")
     else:
-        if a["repeating"]:
-            top = a["repeating"][0]
-            findings.append(f"**{top['display']}** is the most repeated fault ({top['count']} of "
-                            f"{a['fault_total']} fault readings).")
-        elif a["fault_total"]:
-            findings.append("No fault has repeated yet; each recorded fault is a single occurrence.")
+        one = (f"**{predicted_display}** has been predicted **{cnt} times** in {total} recorded readings "
+               f"({_pct(cnt / total)}). It is a **repeating fault**.")
+        if a["cur_streak"] >= 2:
+            one += f" It showed up in the last **{a['cur_streak']} readings in a row**, so it is persisting."
+    L += ["", "**In one line:** " + one]
+
+    # ---- 1. Summary table ----------------------------------------------------
+    rank = a["cur_rank"]
+    rec = RECOMMENDATIONS.get(cur_family or "", {})
+    models = ", ".join(f"{k} ({v})" for k, v in sorted(a["cur_models"].items(), key=lambda kv: -kv[1])) or "n/a"
+    if cur_class == "Normal":
+        repeat = "Not applicable (healthy reading)"
+    elif cnt >= 2:
+        repeat = "Yes"
+    else:
+        repeat = "No, first time"
+    L += ["", "#### 1. This fault at a glance", "", "| Question | Answer |", "|---|---|",
+          f"| Predicted fault | {predicted_display} |",
+          f"| Times predicted | {cnt} out of {total} readings ({_pct(cnt / total)}) |",
+          f"| Is it repeating? | {repeat} |"]
+    if cur_class != "Normal":
+        L.append(f"| Readings in a row (latest) | {a['cur_streak']} |")
+        if rank:
+            L.append(f"| Rank among recorded faults | {rank[0]} of {rank[1]} |")
+    L.append(f"| First recorded | {_nice_ts(a['cur_first'])} |")
+    L.append(f"| Last recorded | {_nice_ts(a['cur_last'])} |")
+    L.append(f"| Risk level | {rec.get('risk', 'n/a')} |")
+    L.append(f"| Predicted by | {models} |")
+    if cur_family and cur_family != "Normal" and a["cur_family_count"] > cnt:
+        L.append(f"| Whole {cur_family} family | {a['cur_family_count']} readings (all defect sizes) |")
+
+    # ---- 2. Weekly frequency ---------------------------------------------------
+    w = a["weekly"]
+    L += ["", "#### 2. How often per week"]
+    if cur_class == "Normal":
+        L += ["", "Not needed for a healthy reading."]
+    elif not w:
+        L += ["", "Weekly counts are not available because these records have no dates (this happens when the "
+                  "saved log cannot be read and only this session's table is used)."]
+    else:
+        L += ["", "| Week starting (Monday) | Times this fault was predicted | All readings that week | Share |",
+              "|---|---|---|---|"]
+        weeks = w["weeks"]
+        shown = weeks[-8:]
+        for ws, c, t in shown:
+            tag = " (latest week)" if ws == weeks[-1][0] else ""
+            share = _pct(c / t) if t else "-"
+            L.append(f"| {_fmt_date(ws)}{tag} | {c} | {t} | {share} |")
+        if len(weeks) > len(shown):
+            L.append(f"| Earlier weeks ({len(weeks) - len(shown)}) | "
+                     f"{sum(c for _, c, _ in weeks[:-8])} | {sum(t for _, _, t in weeks[:-8])} | |")
+        L.append("")
+        days = w["span_days"]
+        if w["avg_per_week"] is not None:
+            L.append(f"**Average:** about **{w['avg_per_week']:.1f} times per week** "
+                     f"({w['cur_total']} times over {days} days, {_fmt_date(w['first'])} to {_fmt_date(w['last'])}).")
+        else:
+            day_word = "day" if days == 1 else "days"
+            L.append(f"**So far:** {_times(w['cur_total'])} in {days} {day_word} "
+                     f"(about {w['avg_per_day']:.1f} per day). There is less than one week of records, "
+                     "so a true weekly rate cannot be given yet; the number above is a count, not a forecast.")
+        if w["batch_max"] >= 5:
+            L.append(f"_Note: {w['batch_max']} readings were saved in the same second (a batch upload), "
+                     "so the counts include those uploaded rows._")
+        if w["undated"]:
+            L.append(f"_{w['undated']} reading(s) had no date and are not counted in the weekly table._")
+
+    # ---- 3. Other recorded faults -------------------------------------------------
+    L += ["", "#### 3. All faults recorded so far"]
+    if not a["class_counts"]:
+        L += ["", "No faults have been recorded. Every reading so far was healthy."]
+    else:
+        L += ["", "| Rank | Fault | Times recorded | Share of all readings | Risk | Last seen |",
+              "|---|---|---|---|---|---|"]
+        for i, x in enumerate(a["class_counts"][:6], 1):
+            mark = " (current)" if x["class"] == cur_class else ""
+            L.append(f"| {i} | {x['display']}{mark} | {x['count']} | {_pct(x['share'])} | "
+                     f"{x['risk']} | {_nice_ts(x['last_seen'])} |")
+        if len(a["class_counts"]) > 6:
+            L.append(f"\n_{len(a['class_counts']) - 6} less frequent fault type(s) not shown._")
+        L.append(f"\nHealthy readings: {a['normal_total']}. Fault readings: {a['fault_total']}."
+                 + (f" {a['excluded']} reading(s) left out because the input was unreliable." if a["excluded"] else ""))
+
+    # ---- 4. What the pattern means ---------------------------------------------------
+    F: list[str] = []
+    if not a["enough"]:
+        F.append(f"Only {total} record(s) so far. At least {MIN_RECORDS_FOR_PATTERN} are needed before a "
+                 "pattern means much.")
+    else:
+        t = a["cur_trend"]
+        if t:
+            basis = ("comparing the last two weeks" if t["basis"] == "weeks"
+                     else "comparing the older half of the record with the newer half")
+            if t["new"] > t["old"] + 0.10:
+                F.append(f"**Getting more frequent:** {basis}, this fault went from {_pct(t['old'])} to "
+                         f"{_pct(t['new'])} of readings.")
+            elif t["new"] < t["old"] - 0.10:
+                F.append(f"**Becoming less frequent:** {basis}, this fault went from {_pct(t['old'])} to "
+                         f"{_pct(t['new'])} of readings.")
+            else:
+                F.append(f"**Steady:** {basis}, this fault stayed at about {_pct(t['new'])} of readings.")
+        elif cur_class != "Normal":
+            F.append("Not enough spread over time yet to say whether this fault is getting more or less common.")
         if a["progression"]:
             kind, first, last = a["progression"]
-            fam = cur_family
             if kind == "worsening":
-                findings.append(f"**Escalation:** {fam} readings moved from {SEVERITY_MAP[first].lower()} "
-                                f"(0.{first}in) to {SEVERITY_MAP[last].lower()} "
-                                f"(0.{last}in) over time, so the defect appears to be progressing.")
+                F.append(f"**Getting worse:** {cur_family} readings moved from {SEVERITY_MAP[first].lower()} "
+                         f"(0.{first}in) to {SEVERITY_MAP[last].lower()} (0.{last}in), so the damage looks "
+                         "like it is progressing.")
             elif kind == "easing":
-                findings.append(f"{fam} readings moved from {SEVERITY_MAP[first].lower()} to "
-                                f"{SEVERITY_MAP[last].lower()}; severity is not rising in this record.")
-        if a["trend"]:
-            old, new = a["trend"]
-            if new > old + 0.10:
-                findings.append(f"**Trend:** fault readings are rising ({old*100:.0f}% of the older half "
-                                f"of the log vs {new*100:.0f}% of the newer half).")
-            elif new < old - 0.10:
-                findings.append(f"Trend: fault readings are falling ({old*100:.0f}% older half, "
-                                f"{new*100:.0f}% newer half).")
-            else:
-                findings.append(f"Trend: fault rate is roughly stable ({old*100:.0f}% older half, "
-                                f"{new*100:.0f}% newer half).")
-        crit = a["risk_counts"].get("Critical", 0)
-        high = a["risk_counts"].get("High", 0)
+                F.append(f"{cur_family} readings moved from {SEVERITY_MAP[first].lower()} to "
+                         f"{SEVERITY_MAP[last].lower()}; severity is not rising in this record.")
+        if len(a["cur_models"]) > 1:
+            F.append("More than one model predicted this fault, which makes it more likely to be real.")
+        crit, high = a["risk_counts"].get("Critical", 0), a["risk_counts"].get("High", 0)
         if crit or high:
-            parts = [f"{n} {lbl}" for n, lbl in ((crit, "Critical"), (high, "High")) if n]
-            findings.append("Risk breakdown includes " + " and ".join(parts) + " reading(s).")
-    if findings:
-        lines += ["", "**Patterns found:**"] + [f"- {f}" for f in findings]
+            bits = [f"{n} {lbl}-risk" for n, lbl in ((crit, "Critical"), (high, "High")) if n]
+            F.append("The record also holds " + " and ".join(bits) + " reading(s) across all faults.")
+    if F:
+        L += ["", "#### 4. What the pattern means", ""] + [f"- {f}" for f in F]
 
-    # --- Recommended attention ---------------------------------------------
-    rec = RECOMMENDATIONS.get(cur_family or "", {})
+    # ---- 5. Actions ------------------------------------------------------------------
     actions = list(rec.get("actions", []))
-    if cur_class and cur_class != "Normal" and a["cur_count"] >= 3 and not any("root-cause" in x.lower() for x in actions):
-        actions.append("Repeat fault: open a root-cause analysis (check alignment, lubrication, mounting, load)")
+    if cur_class and cur_class != "Normal" and cnt >= 3 and not any("root-cause" in x.lower() for x in actions):
+        actions.append("Repeat fault: open a root-cause analysis (check alignment, lubrication, mounting and load)")
     if actions:
-        lines += ["", f"**Recommended maintenance actions ({rec.get('risk', 'n/a')} risk):**"]
-        lines += [f"- {x}" for x in actions]
+        L += ["", f"#### 5. Recommended actions ({rec.get('risk', 'n/a')} risk)", ""] + [f"- {x}" for x in actions]
 
-    lines += ["", "_Built from the dashboard's own prediction log. These are model predictions, not "
-                  "confirmed work orders; useful as a starting point for retroactive labelling and "
-                  "always subject to human review._"]
-    return "\n".join(lines)
+    L += ["", "_Built from the dashboard's own prediction log. These are model predictions, not confirmed work "
+              "orders, so a person should always review them before acting._"]
+    return "\n".join(L)
 
 
 def chart_frame(records: list[dict]):
