@@ -527,4 +527,45 @@ div[data-testid="stExpander"] details summary {
   background-color: #D6EEFF !important;   /* light blue header background for expander sections */
   color: #0B3D66 !important; 
   border-radius: 8px !important; 
-} 
+}
+
+/* ---- Plain-language result tables (Root Cause, Maintenance History, Fusion) ---- */
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] h3 {
+  font-size: 1.25rem; margin: 0.2rem 0 0.4rem 0; padding-bottom: 0.35rem;
+  border-bottom: 2px solid rgba(224, 122, 31, 0.85);
+}
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] h4 {
+  font-size: 1.02rem; margin: 1.1rem 0 0.35rem 0; font-weight: 700;
+}
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] table {
+  width: 100%; border-collapse: separate; border-spacing: 0; margin: 0.35rem 0 0.8rem 0;
+  border: 1px solid rgba(128, 128, 128, 0.35); border-radius: 8px; overflow: hidden; font-size: 0.92rem;
+}
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] th {
+  background: #17233B; color: #FFFFFF; text-align: left; font-weight: 600; padding: 8px 12px;
+}
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] td {
+  padding: 8px 12px; vertical-align: top; border-top: 1px solid rgba(128, 128, 128, 0.25);
+}
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] tbody tr:nth-child(even) td {
+  background: rgba(128, 128, 128, 0.07);
+}
+
+/* ---- White labels: 9 feature inputs (max, sd, kurtosis, min, rms, crest, mean, skewness, form)
+        and the thermal fields (Include thermal reading, Measured / Normal baseline temperature) ---- */
+[class*="st-key-manual_"] label,
+[class*="st-key-manual_"] label p,
+[class*="st-key-manual_"] label span,
+[class*="st-key-manual_"] [data-testid="stWidgetLabel"] p,
+[class*="st-key-mm_thermal_on_"] label,
+[class*="st-key-mm_thermal_on_"] label p,
+[class*="st-key-mm_thermal_on_"] label span,
+[class*="st-key-mm_temp_"] label,
+[class*="st-key-mm_temp_"] label p,
+[class*="st-key-mm_temp_"] [data-testid="stWidgetLabel"] p,
+[class*="st-key-mm_base_"] label,
+[class*="st-key-mm_base_"] label p,
+[class*="st-key-mm_base_"] [data-testid="stWidgetLabel"] p {
+  color: #FFFFFF !important;
+  opacity: 1 !important;           /* keeps the label fully visible even while the field is disabled */
+}

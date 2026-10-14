@@ -91,6 +91,15 @@ def markdown_to_flowables(md: str) -> list:
                 out.append(_table(rows))
                 out.append(Spacer(1, 4))
             continue
+        hm = re.match(r"^(#{1,6})\s+(.*)", ln)
+        if hm:
+            level = len(hm.group(1))
+            out.append(Spacer(1, 3))
+            out.append(Paragraph(_inline(hm.group(2)), H2 if level <= 3 else ParagraphStyle(
+                "h3", parent=BODY, fontName="Helvetica-Bold", fontSize=9.5, leading=13, textColor=NAVY,
+                spaceBefore=4, spaceAfter=2)))
+            i += 1
+            continue
         m = re.match(r"^\s*(\d+)\.\s+(.*)", ln)
         if m:
             out.append(Paragraph(_inline(m.group(2)), BULLET, bulletText=f"{m.group(1)}."))
@@ -344,10 +353,6 @@ def build_report_pdf(ctx: dict) -> bytes:
     # ---- 6. maintenance history -------------------------------------------
     n += 1
     story += _section("Maintenance History (recorded faults)", n)
-    freq = ctx.get("history_chart") or []
-    if freq:
-        story.append(_bar_chart([(k, float(v)) for k, v in freq], "Faults recorded by the system (times)"))
-        story.append(Spacer(1, 4))
     story += markdown_to_flowables(ctx["history_md"]) if ctx.get("history_md") else [
         _p("_Not generated in this session. Use the Mine Maintenance History tool on the Live Prediction page._")]
 

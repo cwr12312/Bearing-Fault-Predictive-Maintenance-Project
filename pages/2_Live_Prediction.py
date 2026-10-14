@@ -86,12 +86,13 @@ if "live_scaled" not in st.session_state:
 # page (no separate page is used).
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
-# STICKY OUTPUTS
-# Root Cause, Maintenance History and Multimodal Fusion results are stored in
-# session state and shown again on every rerun. A stored result is only
-# replaced when its key changes: a different predicted fault, or meaningfully
-# different typed text/inputs (case and extra spaces do not count). Pressing
-# the button again with the same inputs never changes what is on screen.
+# LOCKED OUTPUTS
+# Root Cause, Maintenance History and Multimodal Fusion results are saved the
+# first time they are generated and shown again, unchanged, every time the
+# button is pressed again (or the page reruns). A saved result is only
+# replaced by a NEW one when the predicted fault changes or the inputs that
+# define the result change (typed notes, thermal values, the kind of sensor
+# reading). Going back to an earlier fault/input shows its saved result again.
 # --------------------------------------------------------------------------
 def _sticky_key(*parts) -> str:
     norm = "|".join(" ".join(str(p).split()).lower() for p in parts)
@@ -99,16 +100,21 @@ def _sticky_key(*parts) -> str:
 
 
 def sticky_get(slot: str, key: str):
-    e = st.session_state.get("sticky_out", {}).get(slot)
-    return e["text"] if e and e["key"] == key else None
+    e = st.session_state.get("sticky_all", {}).get((slot, key))
+    if e is None:
+        return None
+    st.session_state.setdefault("sticky_out", {})[slot] = e  # newest shown result (used by the PDF report)
+    return e["text"]
 
 
 def sticky_put(slot: str, key: str, text: str, fault: str, extra=None):
-    st.session_state.setdefault("sticky_out", {})[slot] = {"key": key, "text": text, "fault": fault, "extra": extra}
+    e = {"key": key, "text": text, "fault": fault, "extra": extra}
+    st.session_state.setdefault("sticky_all", {})[(slot, key)] = e
+    st.session_state.setdefault("sticky_out", {})[slot] = e
 
 
 def sticky_stale(slot: str) -> bool:
-    return slot in st.session_state.get("sticky_out", {})
+    return any(k[0] == slot for k in st.session_state.get("sticky_all", {}))
 
 
 def sticky_for_fault(slot: str, fault: str):
@@ -433,30 +439,23 @@ def render_xai_explanation(
             }
     except Exception:
         reliability = None
-    if reliability is not None and not reliability["in_distribution"]:
-        names = ", ".join(f"{b['feature']} = {b['value']:.4g}" for b in reliability["out_of_range"][:3])
-        st.warning(
-            "**This input is far outside the data the models were trained on, so this prediction may be an "
-            f"artefact of the input and not a real bearing fault.** Out-of-range: {names or 'several features'}. "
-            "Common causes: a typed **mean of 0** (it makes the rms/mean ratio explode), values in different "
-            "units from the training data, or raw values scaled with the stand-in scaler. Try a row from "
-            "`data/test_set_scaled.csv` uploaded as a file."
-        )
-
     # ------------------------------------------------------------------
     # ROOT CAUSE REASONING (decision support, not a diagnosis)
     # Output is kept in session state and only changes when the predicted
     # fault changes or the typed notes change in a meaningful way.
     # ------------------------------------------------------------------
     with st.expander(" ROOT CAUSE REASONING(decision support)"):
-        st.caption("Uses structured sensor data (RMS, kurtosis, crest factor) for the predicted "
-                   "fault, compared with the real training data for that fault, to suggest possible causes. "
-                   "This is decision support for a human to verify — never a guaranteed diagnosis.")
+        st.caption("Looks at how strongly the bearing is vibrating, how sharp the knocking is and how tall the "
+                   "spikes are, compares them with what is normal for the predicted fault, and suggests the "
+                   "most likely causes in plain words. It is decision support for a person to check, "
+                   "never a final diagnosis.")
         rc_notes = st.text_area(
             "Technician notes (optional)", key=f"rc_notes_{model_name}", height=70,
             placeholder="e.g. Grease looked dry at last inspection; housing bolts were slightly loose.",
         )
-        rc_key = _sticky_key(predicted_display, rc_notes)
+        rc_levels = llm_assistant.root_cause_levels(scaled_sample[0] if scaled_sample is not None else None,
+                                                    predicted_display)
+        rc_key = _sticky_key(predicted_display, rc_notes, *rc_levels)
         if st.button("Analyze possible root causes", key=f"root_cause_btn_{model_name}"):
             if sticky_get("root", rc_key) is None:
                 rc_text, _ = llm_assistant.root_cause_reasoning(
@@ -468,7 +467,7 @@ def render_xai_explanation(
         if shown:
             st.markdown(shown)
         elif sticky_stale("root"):
-            st.caption("The predicted fault or your notes changed. Click the button to generate a new analysis.")
+            st.caption("The predicted fault or your notes changed. Click the button to generate the analysis for them.")
 
     # ------------------------------------------------------------------
     # MINE MAINTENANCE HISTORY (faults the system has recorded + optional notes)
@@ -476,35 +475,24 @@ def render_xai_explanation(
     records_now = history_store.load_records(st.session_state.get("prediction_history"))
     n_reliable = sum(1 for r in records_now if r.get("reliable") is not False)
     with st.expander("Mine Maintenance History (extract structured info from notes)"):
-        st.caption("Click the button to generate the maintenance history for the predicted fault. This extracts "
-                   "recurring faults and failure events to help spot patterns — useful as a "
-                   "starting point for retroactive labeling, always subject to human review.")
+        st.caption("Click the button to see how often this fault has been predicted (including per week), "
+                   "whether it is repeating or getting worse, and what to do about it. You can also paste "
+                   "technician notes to pick out repeated problems. A starting point for labelling, always "
+                   "for a person to review.")
         notes_txt = st.text_area(
             "Maintenance notes (optional)", key=f"mine_notes_text_{model_name}", height=90,
             placeholder="Paste technician notes / work-order text here to extract recurring faults and "
                         "failure events from it as well. Leave blank to use only the faults the system has recorded.",
         )
-        mh_key = _sticky_key(predicted_display, notes_txt, n_reliable)
-        if st.button("Extract structured info", key=f"mine_notes_btn_{model_name}"):
+        mh_key = _sticky_key(predicted_display, notes_txt)
+        if st.button("Show maintenance history", key=f"mine_notes_btn_{model_name}"):
             if sticky_get("history", mh_key) is None:
                 mined_text, _ = llm_assistant.maintenance_history_for_fault(
                     predicted_display, records=records_now, notes_text=notes_txt,
                 )
-                sticky_put("history", mh_key, mined_text, predicted_display,
-                           extra=history_analysis.chart_frame(records_now))
+                sticky_put("history", mh_key, mined_text, predicted_display)
         shown = sticky_get("history", mh_key)
         if shown:
-            freq = (st.session_state["sticky_out"]["history"].get("extra")) or []
-            if freq:
-                fig_h = go.Figure(go.Bar(
-                    x=[n for _, n in freq][::-1], y=[d for d, _ in freq][::-1], orientation="h",
-                    marker_color=COLORS["accent_amber"],
-                ))
-                fig_h.update_layout(template=PLOTLY_TEMPLATE, height=max(180, 46 * len(freq) + 60),
-                                    margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)",
-                                    plot_bgcolor="rgba(0,0,0,0)", xaxis_title="Times recorded",
-                                    title="Faults recorded by the system")
-                st.plotly_chart(fig_h, use_container_width=True)
             st.markdown(shown)
             if records_now:
                 st.download_button(
@@ -514,11 +502,11 @@ def render_xai_explanation(
                     key=f"dl_hist_{model_name}",
                 )
         elif sticky_stale("history"):
-            st.caption("The predicted fault, your notes or the recorded log changed. "
-                       "Click the button to generate an updated history.")
+            st.caption("The predicted fault or your notes changed. Click the button to see the history for them.")
         if st.button("Clear recorded log", key=f"clear_hist_log_{model_name}"):
             history_store.clear_log()
             st.session_state.pop("sticky_out", None)
+            st.session_state.pop("sticky_all", None)
             st.success("Recorded fault log cleared. History will rebuild as new predictions are made.")
 
     # ------------------------------------------------------------------
@@ -539,10 +527,9 @@ def render_xai_explanation(
     # MULTIMODAL FUSION (vibration + thermal + acoustic + text + recorded history)
     # ------------------------------------------------------------------
     with st.expander("Multimodal Fusion (vibration + thermal + acoustic + text)"):
-        st.caption("Combine this real vibration-model prediction with an optional thermal "
-                   "reading, an acoustic note, and/or maintenance text — plus the faults this system has "
-                   "recorded so far — into one fused, decision-support assessment. Leave a field blank to "
-                   "exclude that modality — nothing is invented on your behalf.")
+        st.caption("Combine the model's vibration prediction with an optional temperature reading, a sound note "
+                   "and/or a maintenance note, plus the faults this system has recorded so far, into one "
+                   "simple assessment. Leave a field blank to leave it out. Nothing is made up on your behalf.")
         mm1, mm2 = st.columns(2)
         with mm1:
             use_thermal = st.checkbox("Include thermal reading", key=f"mm_thermal_on_{model_name}")
@@ -570,7 +557,7 @@ def render_xai_explanation(
         )
         mm_key = _sticky_key(predicted_display,
                              thermal_temp if use_thermal else "", thermal_baseline if use_thermal else "",
-                             acoustic_note_mm, maint_note_mm, use_hist, n_reliable if use_hist else "")
+                             acoustic_note_mm, maint_note_mm, use_hist)
         if st.button("Fuse modalities", key=f"mm_fuse_btn_{model_name}"):
             if sticky_get("fusion", mm_key) is None:
                 fused_text, _ = llm_assistant.multimodal_fusion_reasoning(
@@ -587,7 +574,7 @@ def render_xai_explanation(
         if shown:
             st.markdown(shown)
         elif sticky_stale("fusion"):
-            st.caption("The predicted fault or one of the inputs changed. Click the button to fuse again.")
+            st.caption("The predicted fault or one of the inputs changed. Click the button to combine them again.")
 
     # ------------------------------------------------------------------
     # AUTOMATED REPORTING: builds a multi-page PDF from the real state above.
@@ -612,7 +599,7 @@ def render_xai_explanation(
             "root_cause_md": sticky_for_fault("root", predicted_display),
             "history_md": sticky_for_fault("history", predicted_display),
             "fusion_md": sticky_for_fault("fusion", predicted_display),
-            "history_chart": history_analysis.chart_frame(records_now),
+            "history_chart": [],
             "history_records": records_now,
             "best_model": (best["model_name"], float(best["accuracy"])), "leaderboard": board,
         }
@@ -740,10 +727,6 @@ if input_mode == "Manual Feature Entry":
                 f"{feat}", value=float(defaults[feat]), format="%.4f",
                 help=FEATURE_DESCRIPTIONS.get(feat, ""), key=f"manual_{feat}",
             )
-    if abs(values["mean"]) < 1e-3:
-        st.warning("A mean of (almost) 0 makes the engineered rms/mean ratio explode (for example 0.4 / 0 becomes "
-                   "40,000,000), which pushes the models toward one extreme class such as Outer Race. "
-                   "Enter the real, non-zero mean of your signal.")
     if st.button("Run Prediction", type="primary", key="manual_predict"):
         # Engineer the remaining 10 features + scale, then persist to
         # session_state so results survive later reruns (see note at top of file).

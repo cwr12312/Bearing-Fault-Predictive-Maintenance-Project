@@ -372,170 +372,212 @@ def answer_dashboard_query(question: str, session_history: list[dict] | None = N
 # C. ROOT CAUSE REASONING (decision support, not a diagnosis)
 # ==========================================================================
 
-# Each candidate: (title, why it is plausible, feature signals that make it more likely, note keywords)
+# Each candidate: (title, plain-language reason, feature signals that make it more likely, note keywords)
 # Signals: "impulsive" = raised kurtosis, "peaks" = raised crest factor, "energy" = raised RMS.
 _ROOT_CAUSES = {
     "Ball Fault": [
-        ("Rolling-element (ball) surface damage or spalling",
-         "Ball defects produce impacts at the ball-spin frequency, which show up as raised kurtosis and crest factor.",
+        ("Damaged or chipped rolling balls",
+         "A damaged ball hits the track as it spins, which makes sharp, knock-like vibration.",
          {"impulsive", "peaks"}, ()),
-        ("Lubricant contamination or degradation",
-         "Particles or broken-down grease accelerate wear on the balls and raceways and raise overall vibration energy.",
+        ("Dirty, dry or worn-out grease",
+         "Dirt or old grease wears the balls and tracks faster and makes the bearing shake more.",
          {"energy"}, ("lubric", "grease", "contamin", "dirt", "debris", "dry")),
-        ("Improper installation or excessive preload",
-         "Mounting damage or over-tightening can introduce early rolling-element damage.",
+        ("Poor fitting or too much tightening",
+         "Damage during fitting, or tightening the bearing too much, can harm the balls early on.",
          set(), ("install", "mount", "preload", "tight", "fit")),
     ],
     "Inner Race Fault": [
-        ("Inner-race pitting / spalling from fatigue",
-         "Inner-race defects rotate with the shaft, producing periodic impacts and amplitude-modulated vibration.",
+        ("Wear or pitting on the inner ring",
+         "The inner ring turns with the shaft, so a damaged spot hits the balls again and again.",
          {"impulsive", "peaks"}, ()),
-        ("Shaft misalignment or unbalance",
-         "Added cyclic loading on the inner race raises vibration energy and shortens fatigue life.",
+        ("Shaft out of line or out of balance",
+         "An uneven shaft puts extra load on the inner ring and makes it tire out sooner.",
          {"energy"}, ("misalign", "unbalanc", "imbalanc", "shaft", "coupling")),
-        ("Loose or tight shaft fit (fretting / creep)",
-         "Incorrect fit between shaft and inner ring can cause fretting and early surface damage.",
+        ("Loose or over-tight fit on the shaft",
+         "If the ring does not fit the shaft properly, it can rub and wear the surface early.",
          set(), ("loose", "fit", "fretting", "creep", "looseness")),
     ],
     "Outer Race Fault": [
-        ("Outer-race wear / pitting",
-         "A localized outer-race defect produces repeated impacts each time a rolling element passes over it.",
+        ("Wear or pitting on the outer ring",
+         "A damaged spot on the outer ring is hit every time a ball rolls over it.",
          {"impulsive", "peaks"}, ()),
-        ("Contamination / foreign-body damage",
-         "Debris trapped in the load zone creates impact events and indentation on the raceway.",
+        ("Dirt or foreign particles inside the bearing",
+         "Grit caught under the load leaves dents in the track and causes knocks.",
          {"impulsive"}, ("contamin", "debris", "dirt", "dust", "water", "foreign")),
-        ("Lubrication deficiency or wrong grease",
-         "Insufficient film thickness lets metal-to-metal contact occur, raising energy and accelerating race damage.",
+        ("Not enough grease, or the wrong grease",
+         "Without a good grease film, metal rubs on metal and the track wears quickly.",
          {"energy"}, ("lubric", "grease", "dry", "overheat", "hot")),
-        ("Housing misalignment or loose housing fit",
-         "Uneven load distribution concentrates stress on the outer race.",
+        ("Housing out of line or loose",
+         "An uneven or loose housing puts too much stress on one part of the outer ring.",
          set(), ("housing", "loose", "misalign", "mount", "looseness")),
     ],
 }
 
-_SIGNAL_TEXT = {"impulsive": "raised kurtosis (impact-like vibration)",
-                "peaks": "raised crest factor (sharp peaks)",
-                "energy": "raised RMS (more vibration energy)"}
+_SIGNAL_TEXT = {"impulsive": "more sharp, knock-like hits than usual",
+                "peaks": "taller vibration spikes than usual",
+                "energy": "stronger overall vibration than usual"}
+
+# Plain-language names for the three vibration readings.
+_FEATURE_PLAIN = {
+    "rms": ("Overall vibration strength", "How hard the bearing is shaking overall",
+            "The bearing is shaking harder than usual.", "The bearing is shaking less than usual."),
+    "kurtosis": ("Knocking level", "How sharp and knock-like the vibration is",
+                 "There are more sharp knocks than usual.", "There are fewer sharp knocks than usual."),
+    "crest": ("Spike height", "How tall the biggest spikes are compared with normal shaking",
+              "The spikes are taller than usual.", "The spikes are lower than usual."),
+}
 
 
 def _level(z: float) -> str:
     if z >= 2:
-        return "much higher than typical"
+        return "Much higher than usual"
     if z >= 1:
-        return "higher than typical"
+        return "Higher than usual"
     if z <= -2:
-        return "much lower than typical"
+        return "Much lower than usual"
     if z <= -1:
-        return "lower than typical"
-    return "typical"
+        return "Lower than usual"
+    return "About usual"
+
+
+def _confidence_words(c: float) -> str:
+    if c >= 0.9:
+        return "very high"
+    if c >= 0.75:
+        return "high"
+    if c >= 0.6:
+        return "moderate"
+    return "low"
+
+
+def root_cause_levels(scaled_features, predicted_display: str) -> tuple:
+    """
+    Coarse reading of the three key vibration features (e.g. ('Much lower than usual', ...)).
+    Used by the page so the saved Root Cause result is reused for the same fault and the same kind of reading.
+    """
+    if scaled_features is None:
+        return ()
+    from utils import reference_profiles as rp
+    a = rp.assess(scaled_features, _class_from_display(predicted_display))
+    return tuple(_level(a["features"][f]["z"]) for f in ("rms", "kurtosis", "crest")) if a else ()
 
 
 def root_cause_reasoning(predicted_display: str, confidence: float, features: dict,
                           technician_notes: str = "", scaled_features=None) -> tuple[str, str]:
     """
-    Evidence-based root-cause suggestions for the predicted fault.
+    Plain-language root-cause suggestions for the predicted fault.
 
-    The sample's RMS / kurtosis / crest factor (and the whole 19-feature vector)
-    are compared with the REAL training data for the predicted class
-    (utils/reference_profiles.py). Candidate causes are ranked by how much
-    feature evidence supports them, and by anything the technician typed.
+    The sample's overall vibration strength, knocking level and spike height are compared with the REAL
+    training data for the predicted fault (utils/reference_profiles.py) and described in words only.
+    Candidate causes are ranked by how much of that evidence (and any technician notes) supports them.
     Deterministic: the same inputs always give exactly the same output.
     Decision support for a human to verify, never a diagnosis.
     """
     family = family_for_display(predicted_display)
     causes = _ROOT_CAUSES.get(family)
     if not causes:
-        return ("No fault is predicted, so there are no root causes to analyse. "
-                "Continue routine monitoring."), "template"
+        return (f"### Root Cause Analysis: {predicted_display}\n\n"
+                "No fault is predicted, so there are no root causes to look for. "
+                "Keep up routine monitoring."), "template"
 
     from utils import reference_profiles as rp
     cname = _class_from_display(predicted_display)
     a = rp.assess(scaled_features, cname) if scaled_features is not None else None
     sev_code = next((c for c in ("007", "014", "021") if c in cname), None)
 
-    lines = [f"**Predicted condition:** {predicted_display} (model confidence {confidence*100:.1f}%)", ""]
     signals: set[str] = set()
     reliable = True
+    lowered = 0
+    L = [f"### Root Cause Analysis: {predicted_display}", "",
+         "_Decision support for a person to check. It is not a final diagnosis._", ""]
 
+    L.append(f"**In one line:** the model predicts **{predicted_display}** with "
+             f"**{_confidence_words(confidence)} confidence** ({confidence * 100:.0f}%).")
+
+    # ---- 1. Can the reading be trusted? ----------------------------------------
+    L += ["", "#### 1. Can this reading be trusted?", ""]
     if a:
         reliable = a["in_distribution"]
         if reliable and a["nearest_agrees"]:
-            lines.append("**Input check:** the sample's feature pattern matches the training data for this "
-                         "fault class, so the analysis below is well grounded.")
+            L.append("**Yes.** The readings look like the training examples the model learned for this fault.")
         elif reliable:
-            top = a["nearest"]
-            lines.append(f"**Input check:** the sample is within the normal range of the training data, but its "
-                         f"overall feature pattern is actually closest to **{CLASS_DISPLAY_NAMES.get(top, top)}**. "
-                         "Treat the predicted fault type with some caution and verify on site.")
+            top = CLASS_DISPLAY_NAMES.get(a["nearest"], a["nearest"])
+            L.append(f"**Partly.** The readings are in a normal range, but overall they look closest to "
+                     f"**{top}**. Treat the predicted fault type with some care and check it on site.")
         else:
             bad = rp.out_of_range_features(scaled_features, 3)
-            names = ", ".join(f"{b['feature']} ({b['value']:.4g})" for b in bad) or "several features"
-            lines.append("**Input check: LOW RELIABILITY.** This sample lies far outside everything the models "
-                         f"were trained on (out-of-range: {names}). The predicted fault may be an artefact of "
-                         "the input, not a real bearing condition, so the causes below are generic only.")
-        lines.append("")
-        lines += ["**Evidence from the sensor features** (scaled units, compared with the training data for "
-                  f"{predicted_display}):", "",
-                  "| Feature | This sample | Typical for this class (mean +/- sd) | Reading |",
-                  "|---|---|---|---|"]
-        for f, label in (("rms", "RMS"), ("kurtosis", "Kurtosis"), ("crest", "Crest factor")):
-            d = a["features"][f]
-            lines.append(f"| {label} | {d['value']:.2f} | {d['class_mean']:.2f} +/- {d['class_std']:.2f} | "
-                         f"{_level(d['z'])} |")
-            if reliable:
-                v = d["value"]
-                if f == "rms" and v > 0.5:
-                    signals.add("energy")
-                if f == "kurtosis" and v > 0.5:
-                    signals.add("impulsive")
-                if f == "crest" and v > 0.5:
-                    signals.add("peaks")
-        lines.append("")
-        if reliable and signals:
-            lines.append("What the features suggest: " + "; ".join(_SIGNAL_TEXT[s] for s in sorted(signals)) +
-                         " (relative to the average training sample).")
-        elif reliable:
-            lines.append("What the features suggest: RMS, kurtosis and crest factor are not elevated compared "
-                         "with the average training sample, so the vibration evidence for a specific cause is weak.")
+            names = ", ".join(b["feature"] for b in bad) or "several readings"
+            L.append("**No, low reliability.** These readings are far outside everything the models were trained "
+                     f"on (unusual: {names}). The predicted fault may come from the input values and not from a "
+                     "real bearing problem, so the causes below are only general.")
     else:
-        def _fmt(v):
-            return f"{v:.3f}" if isinstance(v, (int, float)) else "n/a"
-        lines.append(f"**Feature evidence:** RMS = {_fmt(features.get('rms'))}, "
-                     f"Kurtosis = {_fmt(features.get('kurtosis'))}, Crest factor = {_fmt(features.get('crest'))}")
-        lines.append("_Reference training data was not available, so these values could not be compared with it._")
+        L.append("**Could not be checked.** The reference training data was not available, so the readings could "
+                 "not be compared with it.")
 
-    # Technician notes: negation-aware keyword themes
+    # ---- 2. What the vibration readings show ------------------------------------
+    if a:
+        L += ["", "#### 2. What the vibration readings show", "",
+              "| Reading | What it measures | Compared with this fault | What it means |",
+              "|---|---|---|---|"]
+        for f in ("rms", "kurtosis", "crest"):
+            d = a["features"][f]
+            label, measures, up, down = _FEATURE_PLAIN[f]
+            lvl = _level(d["z"])
+            meaning = up if d["z"] >= 1 else down if d["z"] <= -1 else "In line with this fault."
+            if d["z"] <= -1:
+                lowered += 1
+            L.append(f"| {label} | {measures} | {lvl} | {meaning} |")
+            if reliable and d["value"] > 0.5:
+                signals.add({"rms": "energy", "kurtosis": "impulsive", "crest": "peaks"}[f])
+        L.append("")
+        if reliable and signals:
+            L.append("**What this suggests:** the readings show " +
+                     " and ".join(_SIGNAL_TEXT[s] for s in sorted(signals)) + " (compared with the average "
+                     "training example).")
+        elif reliable:
+            L.append("**What this suggests:** none of the three readings is raised compared with the average "
+                     "training example, so the vibration alone gives only weak support for any one cause.")
+        if reliable and lowered >= 2:
+            L.append("These readings are quieter than usual for this fault. Please check the bearing on site "
+                     "before relying on the predicted fault.")
+    else:
+        L += ["", "#### 2. What the vibration readings show", "",
+              "No comparison is possible without the reference training data."]
+
+    # ---- 3. Likely causes ---------------------------------------------------------
     aff = _affirmed(technician_notes) if technician_notes and technician_notes.strip() else ""
-
     ranked = []
     for title, why, sig, kws in causes:
         hit_sig = sorted(sig & signals)
         hit_kw = sorted({k for k in kws if k in aff})
-        score = len(hit_sig) * 2 + len(hit_kw) * 3
-        ranked.append((score, title, why, hit_sig, hit_kw, bool(sig)))
+        ranked.append((len(hit_sig) * 2 + len(hit_kw) * 3, title, why, hit_sig, hit_kw))
     ranked.sort(key=lambda r: -r[0])  # stable: ties keep the original order
 
-    lines += ["", "**Plausible root-cause candidates, ranked by supporting evidence (decision support only):**", ""]
-    for i, (score, title, why, hs, hk, has_sig) in enumerate(ranked, 1):
+    L += ["", "#### 3. Possible causes, most supported first", "",
+          "| Rank | Possible cause | Why it could happen | Evidence for it |", "|---|---|---|---|"]
+    for i, (score, title, why, hs, hk) in enumerate(ranked, 1):
         ev = []
         if hs:
-            ev.append("supported by " + " and ".join(_SIGNAL_TEXT[s] for s in hs))
+            ev.append("Vibration shows " + " and ".join(_SIGNAL_TEXT[s] for s in hs))
         if hk:
-            ev.append("also matches your notes (" + ", ".join(hk) + ")")
-        if not ev:
-            ev.append("no direct support in the vibration features or notes; cannot be confirmed or ruled out from this data")
-        lines.append(f"{i}. **{title}**: {why}  \n   _Evidence: {'; '.join(ev)}._")
-
+            ev.append("Your notes mention: " + ", ".join(hk))
+        L.append(f"| {i} | {title} | {why} | {'. '.join(ev) if ev else 'None yet, cannot be confirmed or ruled out'} |")
+    if not any(r[0] for r in ranked):
+        L += ["", "_Nothing in the readings or notes backs one cause over another, so this order is just the usual "
+                  "order for this type of fault, not a ranking of likelihood._"]
     if aff:
-        lines += ["", "_Your technician notes were used only to match the keywords above; nothing else was inferred from them._"]
+        L += ["", "_Your technician notes were only used to look for matching words; nothing else was read into them._"]
 
-    sev_step = {"007": "Early stage: schedule an inspection at the next planned stop and increase monitoring frequency.",
-                "014": "Moderate stage: plan inspection soon and prepare a replacement bearing.",
-                "021": "Advanced stage: inspect promptly and plan replacement; avoid prolonged running under load."}
-    lines += ["", "**Next steps:** " + sev_step.get(sev_code, "Visually inspect the bearing.") +
-              " Verify lubricant type and fill level, and re-check vibration while the machine is running.", "",
-              "Decision support only, not a diagnosis. Confirm with manual inspection before scheduling repairs."]
-    return "\n".join(lines), "template"
+    # ---- 4. What to do next ----------------------------------------------------------
+    sev_step = {"007": "Early stage: inspect at the next planned stop and check vibration more often.",
+                "014": "Middle stage: plan an inspection soon and have a replacement bearing ready.",
+                "021": "Advanced stage: inspect quickly, plan a replacement and avoid long runs under heavy load."}
+    L += ["", "#### 4. What to do next", "",
+          f"- {sev_step.get(sev_code, 'Inspect the bearing by eye.')}",
+          "- Check the type and amount of grease.",
+          "- Measure the vibration again while the machine is running.",
+          "", "_Decision support only. Confirm with a hands-on inspection before booking repairs._"]
+    return "\n".join(L), "template"
 
 
 # ==========================================================================
@@ -554,7 +596,8 @@ def summarize_maintenance_notes(notes_text: str) -> tuple[str, str]:
         "Identify: (1) recurring faults or equipment mentioned, (2) any pattern of repeat "
         "failures, (3) a short list of distinct failure events found in the text. Present "
         "this as a structured summary a reliability engineer could use to spot patterns — "
-        "not as ground-truth labels. Be concise."
+        "not as ground-truth labels. Use simple, plain language and short Markdown tables "
+        "(one for events, one for recurring themes). Be concise."
     )
     text, mode = call_llm(system, notes_text)
     if text:
@@ -578,28 +621,30 @@ def summarize_maintenance_notes(notes_text: str) -> tuple[str, str]:
     found = sorted(theme_counts, key=lambda k: -theme_counts[k])
     recurring = [k for k in found if theme_counts[k] > 1]
 
-    parts = [f"**Structured Extraction — {len(lines)} log entr{'y' if len(lines) == 1 else 'ies'} found**"]
+    n = len(lines)
+    parts = [f"### What the pasted notes say", "",
+             f"{n} note entr{'y' if n == 1 else 'ies'} found.", "",
+             "| # | Note |", "|---|---|"]
+    for k, ln in enumerate(lines[:12], 1):
+        parts.append(f"| {k} | {_cell(ln, 160)} |")
+    if n > 12:
+        parts.append(f"\n_{n - 12} more entr{'y' if n - 12 == 1 else 'ies'} not shown._")
 
-    parts.append("\n**Distinct events identified:**")
-    for ln in lines[:12]:
-        parts.append(f"- {ln}")
-
+    parts += ["", "**Topics mentioned:**", ""]
     if found:
-        parts.append("\n**Fault types / equipment mentioned:** " + ", ".join(found))
+        parts += ["| Topic | Entries that mention it | Repeats? |", "|---|---|---|"]
+        for k in found:
+            parts.append(f"| {k} | {theme_counts[k]} | {'Yes, may be a repeat issue' if theme_counts[k] > 1 else 'No'} |")
     else:
-        parts.append("\n**Fault types / equipment mentioned:** none of the tracked keywords "
-                      "were found in this note set.")
+        parts.append("None of the tracked topics were found in these notes.")
 
     if recurring:
-        parts.append(f"\n**Recurring theme(s):** {', '.join(recurring)} — appearing in more "
-                      f"than one entry, which may indicate a repeat or unresolved issue worth "
-                      f"flagging for review.")
+        parts += ["", f"**What stands out:** {', '.join(recurring)} {'appears' if len(recurring) == 1 else 'appear'} in more than one entry. "
+                      "That may point to a repeat or unresolved problem worth a closer look."]
     else:
-        parts.append("\n**Recurring theme(s):** none — nothing in this note set repeats across "
-                      "multiple entries.")
+        parts += ["", "**What stands out:** nothing repeats across entries."]
 
-    parts.append("\n_Candidate structure only — recommended for human review before use as "
-                  "training labels._")
+    parts += ["", "_A starting point only. A person should review it before it is used to label training data._"]
     return "\n".join(parts), mode
 
 
@@ -615,7 +660,7 @@ def maintenance_history_for_fault(predicted_display: str, records: list[dict] | 
     text = history_analysis.history_markdown(records or [], predicted_display)
     if notes_text and notes_text.strip():
         extracted, mode = summarize_maintenance_notes(notes_text)
-        text += "\n\n---\n\n**Extracted from the maintenance notes you pasted:**\n\n" + extracted
+        text += "\n\n---\n\n" + extracted
         return text, mode
     return text, "template"
 
@@ -920,61 +965,61 @@ def chat_with_agent(history: list[dict]) -> tuple[str, str]:
 # result: what thermal / acoustic behaviour is expected, and the verdict.
 _FUSION_PROFILES = {
     "Normal": dict(
-        thermal="Temperature should sit at its normal baseline (within about +5 C).",
+        thermal="Temperature should sit at its normal baseline (within about 5°C).",
         acoustic="A smooth, steady hum with no knocking, clicking or grinding.",
         keywords=(),
         verdict="All evidence points to a healthy bearing. Continue routine monitoring; no maintenance action is needed.",
     ),
     "Ball_007": dict(
-        thermal="Little or no temperature rise is expected at this mild stage (under about +5 C).",
+        thermal="Little or no temperature rise is expected at this mild stage (under about 5°C).",
         acoustic="Faint, irregular clicking that is hard to hear over background noise.",
         keywords=("click", "tick", "irregular", "faint"),
         verdict="Early-stage ball defect (mild). Keep running, trend vibration weekly and plan an inspection at the next scheduled stop.",
     ),
     "Ball_014": dict(
-        thermal="A slight rise of roughly +5 to +10 C is expected.",
+        thermal="A slight rise of roughly 5 to 10°C is expected.",
         acoustic="Intermittent clicking or rattling that is easier to notice at higher speed.",
         keywords=("click", "rattl", "tick", "intermittent"),
         verdict="Moderate ball defect. Schedule maintenance within the next planned window and monitor temperature closely.",
     ),
     "Ball_021": dict(
-        thermal="A clear rise of +10 C or more is expected.",
+        thermal="A clear rise of 10°C or more is expected.",
         acoustic="Persistent rattling or rumbling, often with a rough running feel.",
         keywords=("rattl", "rumbl", "rough", "grind"),
         verdict="Severe ball defect. Plan a bearing replacement soon and limit operation until it is inspected.",
     ),
     "IR_007": dict(
-        thermal="A small rise (about +5 C) is expected as friction starts to increase.",
+        thermal="A small rise (about 5°C above normal) is expected as friction starts to increase.",
         acoustic="A light, regular tapping or buzzing tied to shaft speed.",
         keywords=("tap", "buzz", "whin", "regular"),
         verdict="Early inner-race defect (mild). Inspect promptly, because inner-race faults progress faster than ball faults.",
     ),
     "IR_014": dict(
-        thermal="A noticeable rise of about +10 C is expected.",
+        thermal="A noticeable rise of about 10°C is expected.",
         acoustic="A steady, pulsing growl or whine at shaft speed.",
         keywords=("growl", "whine", "pulse", "tap", "buzz"),
         verdict="Moderate inner-race defect. Reduce load or speed and replace the bearing at the earliest opportunity.",
     ),
     "IR_021": dict(
-        thermal="A strong rise of +15 C or more is expected.",
+        thermal="A strong rise of 15°C or more is expected.",
         acoustic="Loud, harsh grinding or howling with strong vibration.",
         keywords=("grind", "howl", "loud", "harsh", "screech"),
         verdict="Severe inner-race defect. Stop or heavily derate the machine and replace the bearing immediately.",
     ),
     "OR_007_6": dict(
-        thermal="A mild rise (about +5 C) is expected, mostly at the housing.",
+        thermal="A mild rise (about 5°C above normal) is expected, mostly at the housing.",
         acoustic="A faint rhythmic knocking or rumbling from the housing.",
         keywords=("knock", "rumbl", "rhythm", "thump"),
         verdict="Early outer-race defect (mild) at the 6 o'clock load zone. Check lubrication and alignment now and re-test soon.",
     ),
     "OR_014_6": dict(
-        thermal="A clear rise of +10 C or more is expected.",
+        thermal="A clear rise of 10°C or more is expected.",
         acoustic="A distinct, repeating knock or thump that is easy to hear.",
         keywords=("knock", "thump", "rumbl", "rhythm", "repeat"),
         verdict="Moderate outer-race defect. Notify the maintenance supervisor and prepare for a shutdown and replacement.",
     ),
     "OR_021_6": dict(
-        thermal="A large rise of +15 C or more is expected.",
+        thermal="A large rise of 15°C or more is expected.",
         acoustic="A heavy, loud pounding or roaring from the housing.",
         keywords=("pound", "roar", "loud", "knock", "thump", "heavy"),
         verdict="Severe outer-race defect. Shut the machine down and replace the bearing before restarting.",
@@ -1035,7 +1080,7 @@ def multimodal_fusion_reasoning(predicted_display: str, confidence: float, famil
                                  history_records: list[dict] | None = None,
                                  include_history: bool = True) -> tuple[str, str]:
     """
-    Deterministic fusion of up to five evidence streams into one assessment:
+    Deterministic, plain-language fusion of up to five evidence streams into one assessment:
       1. Vibration  - the real ML prediction (always present)
       2. Thermal    - measured temperature vs baseline (optional)
       3. Acoustic   - technician's sound note (optional)
@@ -1060,12 +1105,13 @@ def multimodal_fusion_reasoning(predicted_display: str, confidence: float, famil
     has_hist = bool(hist and hist["total"])
 
     if not (has_thermal or has_acoustic or has_text or has_hist):
-        return ("Only the vibration modality has data. Add a thermal reading, an acoustic note or a "
-                "maintenance note, or run more predictions so the recorded fault history can be used, "
-                "to fuse them into a combined assessment."), "template"
+        return (f"### Fused Assessment: {predicted_display}\n\n"
+                "Only the vibration model has data so far. Add a temperature reading, a sound note or a "
+                "maintenance note (or run more predictions so the recorded history can be used) and "
+                "they will be combined into one assessment."), "template"
 
-    rows = [("Vibration (ML model)", f"{predicted_display}, {risk}-risk",
-             "Primary evidence", "Primary")]
+    rows = [("Vibration (ML model)", f"{predicted_display}, {risk} risk", "This is the main evidence",
+             "Main evidence")]
     supported, conflicts, flags = 0, 0, []
 
     # ---- Thermal -----------------------------------------------------------
@@ -1073,25 +1119,27 @@ def multimodal_fusion_reasoning(predicted_display: str, confidence: float, famil
         if thermal_baseline_c is not None:
             delta = thermal_temp_c - thermal_baseline_c
             lo, hi = _THERMAL_RANGE[cname]
-            ev = f"{thermal_temp_c:.1f} C vs {thermal_baseline_c:.1f} C baseline ({delta:+.1f} C)"
+            word = (f"{abs(delta):.1f}°C warmer than normal" if delta > 0 else
+                    f"{abs(delta):.1f}°C cooler than normal" if delta < 0 else "same as normal")
+            ev = f"{thermal_temp_c:.1f}°C measured; normal is {thermal_baseline_c:.1f}°C ({word})"
             if lo is not None and delta < lo:
-                verdict = "Mismatch: cooler than expected"
+                verdict = "Does not agree: the temperature rise is smaller than expected for this fault"
                 conflicts += 1
             elif hi is not None and delta > hi:
-                verdict = ("Mismatch: hotter than expected" if is_normal
-                           else "Hotter than expected: defect may be further along")
                 if is_normal:
+                    verdict = "Does not agree: hotter than expected for a healthy bearing"
                     conflicts += 1
                 else:
+                    verdict = "Agrees, and hotter than expected: the damage may be further along"
                     supported += 1
-                    flags.append("temperature is above the range expected for this fault stage")
+                    flags.append("the temperature is higher than expected for this stage of the fault")
             else:
-                verdict = "Consistent"
+                verdict = "Agrees"
                 supported += 1
-            rows.append(("Thermal", ev, prof["thermal"], verdict))
+            rows.append(("Temperature", ev, prof["thermal"], verdict))
         else:
-            rows.append(("Thermal", f"{thermal_temp_c:.1f} C (no baseline given)", prof["thermal"],
-                         "Cannot judge without a baseline"))
+            rows.append(("Temperature", f"{thermal_temp_c:.1f}°C measured (no normal value given)",
+                         prof["thermal"], "Cannot judge without a normal value"))
 
     # ---- Acoustic ----------------------------------------------------------
     if has_acoustic:
@@ -1100,19 +1148,18 @@ def multimodal_fusion_reasoning(predicted_display: str, confidence: float, famil
         hit = any(k in aff for k in prof["keywords"])
         if is_normal:
             ok = not anomaly
-            verdict = "Consistent" if ok else "Mismatch: abnormal sound reported"
+            verdict = "Agrees" if ok else "Does not agree: an abnormal sound was reported"
         elif hit:
-            ok, verdict = True, "Consistent"
+            ok, verdict = True, "Agrees"
         elif anomaly:
-            ok, verdict = False, "Abnormal sound reported, but a different pattern than expected"
+            ok, verdict = False, "Does not agree: an abnormal sound, but not the usual one for this fault"
         else:
-            ok, verdict = False, "Mismatch: no abnormal sound described"
+            ok, verdict = False, "Does not agree: no abnormal sound described"
         supported += ok
         conflicts += (not ok)
-        if ok and not is_normal:
-            if _LOUD.search(aff) and sev_code == "007":
-                flags.append("sound is described as loud/heavy for a mild-stage prediction")
-        rows.append(("Acoustic", f"\"{_cell(acoustic_note)}\"", prof["acoustic"], verdict))
+        if ok and not is_normal and _LOUD.search(aff) and sev_code == "007":
+            flags.append("the sound is described as loud or heavy, which is a lot for a mild-stage fault")
+        rows.append(("Sound", f"\"{_cell(acoustic_note)}\"", prof["acoustic"], verdict))
 
     # ---- Maintenance text ----------------------------------------------------
     if has_text:
@@ -1126,95 +1173,108 @@ def multimodal_fusion_reasoning(predicted_display: str, confidence: float, famil
             wear.append("service overdue")
         if mentioned:
             ok = (cur_family in mentioned) and not is_normal
-            verdict = ("Consistent: note names the same fault type" if ok
-                       else f"Mismatch: note refers to {', '.join(mentioned)}")
+            verdict = ("Agrees: the note names the same fault type" if ok
+                       else f"Does not agree: the note talks about {', '.join(mentioned)}")
             supported += ok
             conflicts += (not ok)
         elif wear:
-            verdict = "Wear / upkeep flags: " + ", ".join(sorted(set(wear))[:5])
+            verdict = "Useful clues found: " + ", ".join(sorted(set(wear))[:5])
         else:
-            verdict = "No extra flags found"
+            verdict = "Nothing useful found in the note"
         if recur:
-            flags.append("the maintenance note describes a repeat or recurring problem")
+            flags.append("the maintenance note describes a problem that keeps coming back")
         if overdue and not is_normal:
-            flags.append("the maintenance note indicates service is overdue")
-        rows.append(("Maintenance text", f"\"{_cell(maintenance_note)}\"",
-                     "Mentions of the same fault type, wear, lubrication or repeat issues", verdict))
+            flags.append("the maintenance note says service is overdue")
+        rows.append(("Maintenance note", f"\"{_cell(maintenance_note)}\"",
+                     "The same fault type, wear, grease problems or repeat issues", verdict))
 
     # ---- Recorded fault history ----------------------------------------------
     if has_hist:
         h = hist
+        w = h.get("weekly")
         if h["total"] < history_analysis.MIN_RECORDS_FOR_PATTERN:
-            verdict = f"Only {h['total']} record(s); too few to judge"
-            ev = f"{h['total']} recorded prediction(s)"
+            verdict = f"Too few records ({h['total']}) to judge"
+            ev = f"{h['total']} prediction(s) recorded"
         elif is_normal:
-            ev = f"{h['normal_total']} normal and {h['fault_total']} fault reading(s) recorded"
+            ev = f"{h['normal_total']} healthy and {h['fault_total']} fault reading(s) recorded"
             if h["normal_total"] >= h["fault_total"]:
-                verdict, ok = "Consistent: history is mostly healthy", True
+                verdict, ok = "Agrees: the history is mostly healthy", True
             else:
-                verdict, ok = "Mismatch: faults dominate the recorded history", False
+                verdict, ok = "Does not agree: faults dominate the history", False
             supported += ok
             conflicts += (not ok)
         else:
-            ev = (f"{predicted_display} recorded {h['cur_count']}x of {h['total']}"
-                  + (f"; latest {h['cur_streak']} in a row" if h["cur_streak"] >= 2 else ""))
+            ev = f"{predicted_display} recorded {_times_txt(h['cur_count'])} out of {h['total']} readings"
+            if h["cur_streak"] >= 2:
+                ev += f", the last {h['cur_streak']} in a row"
+            if w and w["avg_per_week"] is not None:
+                ev += f" (about {w['avg_per_week']:.1f} a week)"
             if h["cur_count"] >= 2:
-                verdict = "Consistent: this fault keeps repeating in the log"
+                verdict = "Agrees: this fault keeps repeating"
                 supported += 1
                 if h["cur_count"] >= 3 or h["cur_streak"] >= 3:
-                    flags.append(f"this fault has been recorded {h['cur_count']} times (repeat failure)")
+                    flags.append(f"this fault has been recorded {h['cur_count']} times (a repeat failure)")
             elif h["cur_family_count"] > 1:
-                verdict = f"Partly consistent: same {cur_family} family recorded before"
+                verdict = f"Partly agrees: the same {cur_family} family was recorded before"
                 supported += 1
             else:
-                verdict = "First time this fault is recorded; no repeat pattern yet"
+                verdict = "First time this fault is recorded, so no repeat pattern yet"
             if h["progression"] and h["progression"][0] == "worsening":
-                flags.append(f"recorded {cur_family} severity has been rising over time")
+                flags.append(f"recorded {cur_family} readings have been getting more severe over time")
         top = h["top_class"]
-        top_txt = (f"Most repeated recorded fault: {top['display']} ({top['count']}x)" if top
+        top_txt = (f"Most repeated fault in the record: {top['display']} ({_times_txt(top['count'])})" if top
                    else "No faults recorded so far")
-        rows.append(("Recorded fault history", ev, top_txt, verdict))
+        rows.append(("Recorded history", ev, top_txt, verdict))
 
-    # ---- Assemble ---------------------------------------------------------------
-    lines = [f"**Fused assessment - {predicted_display}** (base risk: {risk})", "",
-             "| Modality | Evidence supplied | Expected / reference | Verdict |",
-             "|---|---|---|---|"]
-    for m, ev, exp, verd in rows:
-        lines.append(f"| {m} | {ev} | {_cell(exp, 90)} | {verd} |")
-
+    # ---- Agreement level ---------------------------------------------------------
     checks = supported + conflicts
+    sup_txt = f"{supported} piece of evidence supports" if supported == 1 else f"{supported} pieces of evidence support"
+    con_txt = "1 does not" if conflicts == 1 else f"{conflicts} do not"
     if checks == 0:
-        level, expl = "No cross-check", "no supplied modality could be compared against the vibration result."
+        level, expl = "Nothing to compare", "none of the extra evidence could be checked against the vibration result."
     elif conflicts == 0 and supported >= 2:
-        level, expl = "Strong agreement", f"all {supported} comparable modalities support the vibration result."
+        level, expl = "Strong agreement", f"all {supported} comparable pieces of evidence support the vibration result."
     elif conflicts == 0:
-        level, expl = "Supported", "the one comparable modality supports the vibration result."
+        level, expl = "Supported", "the one comparable piece of evidence supports the vibration result."
     elif supported > conflicts:
-        level, expl = "Partial agreement", (f"{supported} support and {conflicts} do not; treat vibration as "
-                                            "the main evidence and verify the mismatching reading(s).")
+        level, expl = "Mostly agrees", (f"{sup_txt} the vibration result and {con_txt}. Trust the vibration result "
+                                        "most, and re-check the reading that does not match.")
     elif supported == conflicts:
-        level, expl = "Mixed evidence", f"{supported} support and {conflicts} do not; verify on site."
+        level, expl = "Mixed", f"{sup_txt} the vibration result and {con_txt}. Please verify on site."
     else:
-        level, expl = "Conflicting evidence", ("most modalities do not match the vibration result. Re-check "
-                                               "the sensors and readings and confirm with a manual inspection.")
-    lines += ["", f"**Fusion result: {level}** - {expl}"]
-    if confidence is not None and confidence < 0.6:
-        lines.append("The model's own confidence is on the low side, so the other modalities deserve extra weight.")
+        level, expl = "Conflicting", ("most of the evidence does not match the vibration result. Re-check the "
+                                      "sensors and readings and confirm with a hands-on inspection.")
 
-    # Suggested priority: only raised when real evidence above flagged an escalation.
-    priority = risk
+    # ---- Priority ---------------------------------------------------------------------
+    priority, priority_note = risk, "same as the base risk"
     if flags and not is_normal and risk in _RISK_ORDER:
         priority = _RISK_ORDER[min(_RISK_ORDER.index(risk) + 1, len(_RISK_ORDER) - 1)]
-    if flags and not is_normal:
-        shown = "; ".join(flags)
-        if priority != risk:
-            lines.append(f"\n**Escalation flags:** {shown}.\n\n**Suggested priority:** {priority} "
-                         f"(raised from {risk} because of the flags above).")
-        else:
-            lines.append(f"\n**Escalation flags:** {shown}.\n\n**Suggested priority:** {priority} (already the highest level).")
-    else:
-        lines.append(f"\n**Suggested priority:** {priority}")
+        priority_note = (f"raised from {risk} because of the warning signs below" if priority != risk
+                         else "already the highest level")
 
-    lines.append(f"\n**Combined verdict:** {prof['verdict']}")
-    lines.append("\nDecision support only. Verify with a physical inspection before acting.")
-    return "\n".join(lines), "template"
+    # ---- Assemble ------------------------------------------------------------------------
+    L = [f"### Fused Assessment: {predicted_display}", "",
+         "_The vibration model combined with the other evidence you supplied. Anything left blank is not used._", "",
+         f"**Bottom line:** {prof['verdict']}", "",
+         "#### Summary", "", "| Item | Result |", "|---|---|",
+         f"| Predicted fault | {predicted_display} |"]
+    if confidence is not None:
+        L.append(f"| Model confidence | {confidence * 100:.0f}% |")
+    L += [f"| Base risk | {risk} |",
+          f"| Do the other readings agree? | {level} |",
+          f"| Suggested priority | {priority} ({priority_note}) |",
+          "", "#### Evidence compared", "",
+          "| Evidence | What was found | What we would expect | Does it agree? |", "|---|---|---|---|"]
+    for m, ev, exp, verd in rows:
+        L.append(f"| {m} | {ev} | {_cell(exp, 90)} | {verd} |")
+    L += ["", f"**What this means:** {expl[0].upper() + expl[1:]}"]
+    if confidence is not None and confidence < 0.6:
+        L.append("The model's own confidence is on the low side, so give the other evidence extra weight.")
+    if flags and not is_normal:
+        L += ["", "#### Warning signs", ""] + [f"- {f[0].upper() + f[1:]}." for f in flags]
+    L += ["", "_Decision support only. Check with a hands-on inspection before acting._"]
+    return "\n".join(L), "template"
+
+
+def _times_txt(n: int) -> str:
+    return "once" if n == 1 else f"{n} times"
