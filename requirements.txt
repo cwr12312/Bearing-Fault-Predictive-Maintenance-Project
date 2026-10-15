@@ -1,0 +1,34 @@
+# Industrial Predictive Maintenance Dashboard
+# Python 3.10
+
+streamlit==1.59.2
+starlette<1.0
+
+pandas>=2.0,<3.0
+numpy>=1.24,<2.0
+plotly>=5.20,<7.0
+
+tensorflow>=2.16,<2.17
+torch>=2.2,<2.4
+
+scikit-learn>=1.3,<2.0
+shap>=0.45,<1.0
+
+openpyxl>=3.1,<4.0
+python-docx>=1.1,<2.0
+# openai is REQUIRED for the Groq provider — utils/llm_assistant.py calls
+# This was missing before, so on a clean Streamlit Cloud deploy the import
+# would fail and every "Manage Agent" / LLM call would silently fall back
+# to the template mode even with a valid GROQ_API_KEY set.
+openai>=1.40,<2.0
+google-genai>=0.3,<2.0
+
+# Multi-format dataset upload support (Live Prediction page batch upload).
+# scipy is also a transitive dependency of scikit-learn/shap, listed here
+# explicitly since it's now imported directly for .mat and .arff files.
+scipy>=1.10,<2.0
+h5py>=3.9,<4.0
+tables>=3.9,<4.0
+
+# PDF report generation (Live Prediction -> Generate Full Report)
+reportlab>=4.0,<5.0

@@ -1,0 +1,7 @@
+# Hides Streamlit's own automatic sidebar page list. That built-in list is
+# generated straight from filenames (it showed the entry point as lowercase
+# "app", and duplicated the custom navigation rendered by
+# utils.styling.render_sidebar()). With it hidden, the single, correctly
+# labelled "App" navigation built in render_sidebar() is the only nav shown.
+[client]
+showSidebarNavigation = false

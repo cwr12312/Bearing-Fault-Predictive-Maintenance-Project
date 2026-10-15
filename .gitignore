@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+outputs/*
+!outputs/.gitkeep
+logs/*
+!logs/.gitkeep
+charts/*
+!charts/.gitkeep
+reports/*
+!reports/.gitkeep
+.DS_Store
+*.log
