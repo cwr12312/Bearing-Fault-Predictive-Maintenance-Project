@@ -528,6 +528,19 @@ div[data-testid="stExpander"] details summary {
   color: #0B3D66 !important; 
   border-radius: 8px !important; 
 }
+/* The header label is rendered in nested <p>/<span> elements that inherit the dark theme's
+   white text, which made the section titles invisible on the light-blue bar. Force dark text
+   (and icon) on every element inside the header. */
+div[data-testid="stExpander"] details summary *,
+div[data-testid="stExpander"] details summary p,
+div[data-testid="stExpander"] details summary span,
+div[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"],
+div[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] * {
+  color: #0B3D66 !important;
+  fill: #0B3D66 !important;
+  font-weight: 600 !important;
+}
+div[data-testid="stExpander"] details summary:hover { background-color: #BFE3FF !important; }
 
 /* ---- Plain-language result tables (Root Cause, Maintenance History, Fusion) ---- */
 [data-testid="stExpander"] [data-testid="stMarkdownContainer"] h3 {
@@ -568,4 +581,68 @@ div[data-testid="stExpander"] details summary {
 [class*="st-key-mm_base_"] [data-testid="stWidgetLabel"] p {
   color: #FFFFFF !important;
   opacity: 1 !important;           /* keeps the label fully visible even while the field is disabled */
+}
+
+
+/* ---- Text boxes: what you type is ALWAYS black on white -------------------------------------
+        Applies to every text area, text box and number box (Root Cause notes, Maintenance notes /
+        questions, Acoustic and Maintenance notes in Multimodal Fusion, temperature fields).
+        The theme of the deployed app (light or dark) can no longer hide the typed text. ---- */
+.stApp textarea,
+.stApp input[type="text"],
+.stApp input[type="number"],
+.stApp input:not([type]),
+.stApp [data-baseweb="textarea"] textarea,
+.stApp [data-baseweb="input"] input,
+.stApp [data-testid="stTextArea"] textarea,
+.stApp [data-testid="stTextInput"] input,
+.stApp [data-testid="stNumberInput"] input {
+  color: #000000 !important;
+  -webkit-text-fill-color: #000000 !important;
+  caret-color: #000000 !important;
+  background-color: #FFFFFF !important;
+  opacity: 1 !important;
+}
+.stApp [data-baseweb="textarea"],
+.stApp [data-baseweb="base-input"],
+.stApp [data-baseweb="input"] {
+  background-color: #FFFFFF !important;
+  border-radius: 8px !important;
+}
+.stApp textarea::placeholder,
+.stApp input::placeholder {
+  color: #6B7280 !important;
+  -webkit-text-fill-color: #6B7280 !important;
+  opacity: 1 !important;
+}
+.stApp textarea:disabled,
+.stApp input:disabled {
+  color: #4B5563 !important;
+  -webkit-text-fill-color: #4B5563 !important;
+  background-color: #E5E7EB !important;
+}
+
+/* Labels above those boxes stay light so they are readable on the dark page. */
+[class*="st-key-rc_notes_"] label p,
+[class*="st-key-mine_notes_text_"] label p,
+[class*="st-key-mm_acoustic_"] label p,
+[class*="st-key-mm_text_"] label p,
+[class*="st-key-mm_hist_on_"] label p,
+[class*="st-key-mm_hist_on_"] label span {
+  color: #FFFFFF !important;
+  opacity: 1 !important;
+}
+
+/* Results inside the three tools: readable text, tidy lists and quotes. */
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] li,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] td,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] h3,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] h4,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] blockquote {
+  color: var(--text-primary);
+}
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] li { margin-bottom: 0.3rem; }
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] blockquote {
+  border-left: 3px solid var(--accent-blue); padding-left: 0.8rem; opacity: 0.95;
 }
