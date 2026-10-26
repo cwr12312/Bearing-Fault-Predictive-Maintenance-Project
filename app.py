@@ -73,9 +73,9 @@ st.markdown(
         <b>Case Western Reserve University (CWRU) Bearing Data Center</b> dataset the
         standard benchmark for rolling-element bearing fault detection. It compares
         six deep-learning and meta-learning models side by side
-        <b>Two-Dimensional Convolutional Neural Network (2D CNN), Long Short-Term Memory (LSTM), Transformer,
-        Model-Agnostic Meta-Learning (MAML), Meta Stochastic Gradient Descent (Meta-SGD) and
-        Feature-Based Contrastive Learning (FBCL)</b> spanning both
+        <b>2D CNN — Two-Dimensional Convolutional Neural Network; LSTM — Long Short-Term Memory; Transformer;
+        MAML — Model-Agnostic Meta-Learning; Meta-SGD — Meta-Learning with Stochastic Gradient Descent; and
+        FBCL — Feature Boosting Continual Learning</b> spanning both
         traditional supervised deep learning and meta-continual-learning approaches
         to bearing fault classification and predictive maintenance.
     </div>
@@ -97,7 +97,7 @@ measured = bench.set_index("model_name")["measured_inference_ms"].to_dict() if n
 c1, c2, c3, c4 = st.columns(4)
 with c1:
     # Static KPI: this project always ships exactly six trained models.
-    kpi_card("Total Models", "6", "<span style='font-size:0.68rem;'>Two-Dimensional Convolutional Neural Network (2D CNN) · Long Short-Term Memory (LSTM) · Transformer · Model-Agnostic Meta-Learning (MAML) · Meta Stochastic Gradient Descent (Meta-SGD) · Feature-Based Contrastive Learning (FBCL)</span>")
+    kpi_card("Total Models", "6", "<span style='font-size:0.68rem;'>2D CNN — Two-Dimensional Convolutional Neural Network · LSTM — Long Short-Term Memory · Transformer · MAML — Model-Agnostic Meta-Learning · Meta-SGD — Meta-Learning with Stochastic Gradient Descent · FBCL — Feature Boosting Continual Learning</span>")
 with c2:
     # Top-ranked model by average_score (see utils/data_loader.best_model_row).
     kpi_card("Best Performing Model", f"<span style='font-size:1.05rem;'>{best['model_name']}</span>", f"Rank #1 · avg score {best['average_score']:.4f}")

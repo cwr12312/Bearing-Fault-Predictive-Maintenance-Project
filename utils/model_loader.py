@@ -307,14 +307,14 @@ class ModelWrapper:
         shape = cfg["input_shape"]
         n = X.shape[0]
         
-        if self.name == "Two-Dimensional Convolutional Neural Network (2D CNN)":
+        if self.name == "2D CNN — Two-Dimensional Convolutional Neural Network":
             # Zero-pad the flat feature vector out to a perfect square-ish
             # grid (shape[0] x shape[1]) before adding the channel dimension.
             pad = int(np.prod(shape[:2])) - X.shape[1]
             Xp = np.pad(X, ((0, 0), (0, max(pad, 0))), mode="constant")
             return Xp.reshape((n, shape[0], shape[1], shape[2]))
         
-        elif self.name == "Long Short-Term Memory (LSTM)":
+        elif self.name == "LSTM — Long Short-Term Memory":
             # Treat the 19 features as a short sequence rather than a flat vector.
             return X.reshape((n, shape[0], shape[1]))
         
@@ -408,10 +408,10 @@ class ModelWrapper:
 
         with torch.no_grad():
 
-            if self.name == "Feature-Based Contrastive Learning (FBCL)":
+            if self.name == "FBCL — Feature Boosting Continual Learning":
                 logits = self.model(Xt, use_boosting=True)
 
-            elif self.name == "Model-Agnostic Meta-Learning (MAML)":
+            elif self.name == "MAML — Model-Agnostic Meta-Learning":
                 logits = self.model(Xt, mask=None)
 
             else:
@@ -483,7 +483,7 @@ def load_torch_checkpoint(model_name: str, path_str: str):
     # Each of the three PyTorch architectures needs its own hyperparameters
     # (d_model, n_heads, n_layers, dropout) read back out of the checkpoint
     # so the freshly-built model exactly matches the shape of the saved weights.
-    if model_name == "Meta Stochastic Gradient Descent (Meta-SGD)":
+    if model_name == "Meta-SGD — Meta-Learning with Stochastic Gradient Descent":
         arch = ckpt.get("arch", {})
         model = FaultTransformer(
             n_feat=n_features, n_classes=n_classes,
@@ -492,7 +492,7 @@ def load_torch_checkpoint(model_name: str, path_str: str):
         )
         model.load_state_dict(state_dict)
 
-    elif model_name == "Model-Agnostic Meta-Learning (MAML)":
+    elif model_name == "MAML — Model-Agnostic Meta-Learning":
         cfg = ckpt.get("model_config", {})
         model = OptimizedmamlTransformer(
             n_features=n_features, n_classes=n_classes,
@@ -505,7 +505,7 @@ def load_torch_checkpoint(model_name: str, path_str: str):
         # this dashboard actually does inference with.
         model.switch_to_finetune()
 
-    elif model_name == "Feature-Based Contrastive Learning (FBCL)":
+    elif model_name == "FBCL — Feature Boosting Continual Learning":
         cfg = ckpt.get("model_config", {})
         model = OptimizedFBCLTransformer(
             n_features=n_features, n_classes=n_classes,

@@ -43,9 +43,8 @@ PROJECT_DESCRIPTION = (
     # Multi-sentence blurb describing what the dashboard does, shown on the About page.
     "A dual-path, interpretable machine learning system for diagnosing rolling-element "
     "bearing faults from vibration-derived statistical features. This dashboard packages "
-    "six advanced deep-learning and meta-learning models — Two-Dimensional Convolutional Neural Network (2D CNN), "
-    "Long Short-Term Memory (LSTM), Transformer, Model-Agnostic Meta-Learning (MAML), Meta Stochastic Gradient "
-    "Descent (Meta-SGD) and Feature-Based Contrastive Learning (FBCL) — trained on the Case Western Reserve University (CWRU) "
+    "six advanced deep-learning and meta-learning models: 2D CNN — Two-Dimensional Convolutional Neural Network; "
+    "LSTM — Long Short-Term Memory; Transformer; MAML — Model-Agnostic Meta-Learning; Meta-SGD — Meta-Learning with Stochastic Gradient Descent; and FBCL — Feature Boosting Continual Learning, trained on the Case Western Reserve University (CWRU) "
     "Bearing Data Center benchmark, into a single production-style monitoring, prediction "
     "and explainability console."
 )
@@ -194,7 +193,7 @@ MODEL_REGISTRY = {
     # human-readable description — utils/model_loader.py iterates this
     # dict to load all six models, and pages/2_Live_Prediction.py uses the
     # keys as the model-selector dropdown options.
-    "Two-Dimensional Convolutional Neural Network (2D CNN)": {
+    "2D CNN — Two-Dimensional Convolutional Neural Network": {
         "id": "cnn2d",                                  # Short internal id (unused elsewhere currently, kept for reference).
         "framework": "keras",                            # Tells model_loader.py to use the Keras loading path.
         "file": MODELS_DIR / "cnn_2d_model.keras",        # Path to the saved model weights/architecture file.
@@ -205,7 +204,7 @@ MODEL_REGISTRY = {
         "supports_shap": True,                            # Whether the XAI layer can compute SHAP values for this model.
         "shap_mode": "gradient",                          # Which SHAP explainer algorithm to use (gradient-based for Keras models).
     },
-    "Long Short-Term Memory (LSTM)": {
+    "LSTM — Long Short-Term Memory": {
         "id": "lstm",
         "framework": "keras",
         "file": MODELS_DIR / "lstm_model.keras",
@@ -227,7 +226,7 @@ MODEL_REGISTRY = {
         "supports_shap": True,
         "shap_mode": "gradient",
     },
-    "Model-Agnostic Meta-Learning (MAML)": {
+    "MAML — Model-Agnostic Meta-Learning": {
         "id": "maml",
         "framework": "torch",                             # Tells model_loader.py to use the PyTorch loading path.
         "file": MODELS_DIR / "maml_model.pth",
@@ -238,7 +237,7 @@ MODEL_REGISTRY = {
         "supports_shap": True,
         "shap_mode": "kernel",                            # Model-agnostic Kernel SHAP is used for the PyTorch models instead of gradient SHAP.
     },
-    "Meta Stochastic Gradient Descent (Meta-SGD)": {
+    "Meta-SGD — Meta-Learning with Stochastic Gradient Descent": {
         "id": "meta_sgd",
         "framework": "torch",
         "file": MODELS_DIR / "meta_sgd.pth",
@@ -249,7 +248,7 @@ MODEL_REGISTRY = {
         "supports_shap": True,
         "shap_mode": "kernel",
     },
-    "Feature-Based Contrastive Learning (FBCL)": {
+    "FBCL — Feature Boosting Continual Learning": {
         "id": "fbcl",
         "framework": "torch",
         "file": MODELS_DIR / "fbcl_model.pth",
