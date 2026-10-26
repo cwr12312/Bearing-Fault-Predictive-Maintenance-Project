@@ -7,9 +7,9 @@ existing Live Prediction page — there is no separate LLM/AI page.
 
 DESIGN PRINCIPLE
 -----------------
-The six trained ML models (Two-Dimensional Convolutional Neural Network (2D CNN), Long Short-Term Memory (LSTM),
-Transformer, Model-Agnostic Meta-Learning (MAML), Meta Stochastic Gradient Descent (Meta-SGD),
-Feature-Based Contrastive Learning (FBCL))
+The six trained ML models (2D CNN — Two-Dimensional Convolutional Neural Network, LSTM — Long Short-Term Memory,
+Transformer, MAML — Model-Agnostic Meta-Learning, Meta-SGD — Meta-Learning with Stochastic Gradient Descent,
+FBCL — Feature Boosting Continual Learning)
 remain completely unchanged and are the ONLY source of fault predictions
 and metrics in this dashboard. Everything in this module is an *additional,
 optional* language-reasoning layer that sits ON TOP of those predictions —
@@ -813,8 +813,10 @@ def chat_with_agent(history: list[dict]) -> tuple[str, str]:
         "Predictive Maintenance Dashboard for rolling-element bearing fault "
         "diagnosis.\n\n"
 
-        "The dashboard contains six real trained models: 2D CNN, LSTM, "
-        "Transformer, MAML, Meta-SGD, and FBCL, trained for bearing fault "
+        "The dashboard contains six real trained models: 2D CNN — Two-Dimensional Convolutional Neural Network; "
+        "LSTM — Long Short-Term Memory; Transformer; MAML — Model-Agnostic Meta-Learning; "
+        "Meta-SGD — Meta-Learning with Stochastic Gradient Descent; and "
+        "FBCL — Feature Boosting Continual Learning, trained for bearing fault "
         "diagnosis using the CWRU dataset.\n\n"
 
         "Your job is to have a natural, helpful conversation with the user "
