@@ -73,9 +73,9 @@ st.markdown(
         <b>Case Western Reserve University (CWRU) Bearing Data Center</b> dataset the
         standard benchmark for rolling-element bearing fault detection. It compares
         six deep-learning and meta-learning models side by side
-        <b>2D CNN — Two-Dimensional Convolutional Neural Network; LSTM — Long Short-Term Memory; Transformer;
-        MAML — Model-Agnostic Meta-Learning; Meta-SGD — Meta-Learning with Stochastic Gradient Descent; and
-        FBCL — Feature Boosting Continual Learning</b> spanning both
+        <b>2D CNN Two-Dimensional Convolutional Neural Network; LSTM - Long Short-Term Memory; Transformer;
+        MAML - Model-Agnostic Meta-Learning; Meta-SGD Meta-Learning with Stochastic Gradient Descent; and
+        FBCL - Feature Boosting Continual Learning</b> spanning both
         traditional supervised deep learning and meta-continual-learning approaches
         to bearing fault classification and predictive maintenance.
     </div>
@@ -135,11 +135,9 @@ with c8:
     # Prefer the live, measured-on-this-machine inference time; fall back to
     # the estimated figure from data/model_metrics.csv if the benchmark
     # didn't produce a value (e.g. the model failed to load).
-    best_measured = measured.get(best["model_name"])
-    inf_val = f"{best_measured:.2f} ms" if best_measured is not None and best_measured == best_measured else f"~{best['inference_time_ms']:.1f} ms"
-    kpi_card("Inference Time", inf_val, "Measured on this machine" if best_measured else "Estimated")
-
-st.write("")
+  with c8:
+    inf_val = f"{best['inference_time_ms']:.1f} ms"
+    kpi_card("Inference Time", inf_val, "Estimated")
 c9, c10 = st.columns(2)
 with c9:
     # Static KPI: 9 base statistical features + 10 engineered = 19 total (config.N_FEATURES).
